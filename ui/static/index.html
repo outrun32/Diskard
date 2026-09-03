@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Diskard console</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
+    --muted: #8b949e; --accent: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); margin: 0; padding: 24px;
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 12.5px; }
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin: 0 0 10px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  input[type=number] {
+    width: 100%; background: #0d1117; border: 1px solid var(--border); color: var(--text);
+    border-radius: 5px; padding: 6px 8px; font-size: 13px;
+  }
+  button {
+    width: 100%; margin-top: 12px; background: var(--accent); color: #0d1117; border: none;
+    border-radius: 6px; padding: 9px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  button:disabled { background: #2a3138; color: var(--muted); cursor: not-allowed; }
+  button.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
+  .cus-row { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
+  .cus-row code { color: var(--text); }
+  pre#log {
+    background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    height: 340px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: Consolas, monospace; font-size: 12px; margin: 0;
+  }
+  .status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; text-transform: uppercase; }
+  .status-running { background: #3d2f00; color: var(--warn); }
+  .status-done { background: #0f3d1a; color: var(--ok); }
+  .status-error { background: #3d0f0f; color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .tag-yes { color: var(--bad); font-weight: 600; }
+  .tag-no { color: var(--ok); }
+  .findings-list { max-height: 320px; overflow-y: auto; }
+  .finding-row { cursor: pointer; }
+  .finding-row:hover { background: #1c2128; }
+  .metrics { display: flex; gap: 18px; margin: 10px 0 2px; }
+  .metric { text-align: center; }
+  .metric .n { font-size: 22px; font-weight: 700; }
+  .metric .l { font-size: 11px; color: var(--muted); }
+  #findingDetail {
+    background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    font-family: Consolas, monospace; font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+    max-height: 400px; overflow-y: auto; display: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>Diskard — консоль живой атаки</h1>
+<div class="sub">cross-user global-policy-poisoning против genai-invest-agent-memory-stand · <span id="cusLine">...</span></div>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>Fixed-payload повторы</h2>
+      <div class="sub" style="margin-bottom:0">Прогоняет N раз ручной шаблон (~50% persistence rate).</div>
+      <label>Число повторов</label>
+      <input type="number" id="repeatsN" value="6" min="1" max="20">
+      <button id="btnRepeats" onclick="startRepeats()">Запустить повторы</button>
+    </div>
+
+    <div class="panel">
+      <h2>LLM авто-атакующий</h2>
+      <div class="sub" style="margin-bottom:0">Отдельная LLM сама подбирает и адаптирует формулировку payload, глядя на то, как extract_semantics классифицировал прошлые попытки. При успехе — сразу подтверждает утечку end-to-end.</div>
+      <label>Бюджет попыток</label>
+      <input type="number" id="attackerN" value="6" min="1" max="15">
+      <button id="btnAttacker" onclick="startAutoAttack()">Запустить авто-атакующего</button>
+    </div>
+
+    <div class="panel" id="resultPanel" style="display:none">
+      <h2>Результат</h2>
+      <div id="resultBody"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Лог <span id="jobBadge"></span></h2>
+      <pre id="log">Ничего не запущено.</pre>
+    </div>
+
+    <div class="panel">
+      <h2>Находки (examples/finding-*.json)</h2>
+      <div class="findings-list">
+        <table id="findingsTable">
+          <thead><tr><th>Файл</th><th>Найдено</th><th>persisted</th><th>vuln→leak</th><th>protected→leak</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <pre id="findingDetail"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+let pollTimer = null;
+let busy = false;
+
+function setBusy(v) {
+  busy = v;
+  document.getElementById('btnRepeats').disabled = v;
+  document.getElementById('btnAttacker').disabled = v;
+}
+
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const c = await r.json();
+  document.getElementById('cusLine').innerHTML =
+    `poisoner=<code>${c.poisoner_cus}</code> victim=<code>${c.victim_cus}</code> data_subject=<code>${c.data_subject_cus}</code>`;
+}
+
+async function startRepeats() {
+  const n = parseInt(document.getElementById('repeatsN').value || '6', 10);
+  await startJob('/api/jobs/repeats', {n});
+}
+
+async function startAutoAttack() {
+  const max_attempts = parseInt(document.getElementById('attackerN').value || '6', 10);
+  await startJob('/api/jobs/auto-attack', {max_attempts});
+}
+
+async function startJob(url, body) {
+  if (busy) return;
+  setBusy(true);
+  document.getElementById('resultPanel').style.display = 'none';
+  document.getElementById('log').textContent = 'запуск...\n';
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) {
+    document.getElementById('log').textContent = 'Ошибка запуска: ' + await r.text();
+    setBusy(false);
+    return;
+  }
+  const data = await r.json();
+  poll(data.job_id);
+}
+
+function badge(status) {
+  const cls = status === 'running' ? 'status-running' : status === 'done' ? 'status-done' : 'status-error';
+  return `<span class="status-badge ${cls}">${status}</span>`;
+}
+
+function poll(jobId) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const r = await fetch(`/api/jobs/${jobId}`);
+    const job = await r.json();
+    document.getElementById('jobBadge').innerHTML = badge(job.status);
+    document.getElementById('log').textContent = job.log.join('\n') || '(пока пусто)';
+    document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
+    if (job.status !== 'running') {
+      clearInterval(pollTimer);
+      setBusy(false);
+      renderResult(job);
+      loadFindings();
+    }
+  }, 1000);
+}
+
+function renderResult(job) {
+  const panel = document.getElementById('resultPanel');
+  const body = document.getElementById('resultBody');
+  if (!job.result) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  if (job.kind === 'repeats') {
+    const r = job.result;
+    body.innerHTML = `
+      <div class="metrics">
+        <div class="metric"><div class="n">${pct(r.persistence_rate)}</div><div class="l">Persistence</div></div>
+        <div class="metric"><div class="n">${pct(r.e2e_asr_vulnerable_mode)}</div><div class="l">E2E ASR (vuln)</div></div>
+        <div class="metric"><div class="n">${pct(r.leak_rate_protected_mode)}</div><div class="l">Leak (protected)</div></div>
+      </div>
+      <table><thead><tr><th>#</th><th>persisted</th><th>leak vuln</th><th>leak prot</th></tr></thead>
+      <tbody>${r.runs.map(run => run.status === 'error'
+        ? `<tr><td>${run.run}</td><td colspan="3" class="tag-yes">error: ${run.error}</td></tr>`
+        : `<tr><td>${run.run}</td><td>${yn(run.persisted)}</td><td>${yn(run.leaked_vulnerable)}</td><td>${yn(run.leaked_protected)}</td></tr>`
+      ).join('')}</tbody></table>`;
+  } else if (job.kind === 'auto-attack') {
+    const r = job.result;
+    if (!r.succeeded) {
+      body.innerHTML = `<div class="tag-yes">Не нашли персистящуюся формулировку за отведённый бюджет попыток.</div>`;
+      return;
+    }
+    const f = r.finding;
+    const d = f ? f.details : null;
+    body.innerHTML = `
+      <div class="sub">${f ? f.found_by : ''}</div>
+      <div style="margin:8px 0;padding:8px;background:#0d1117;border-radius:5px;font-size:12.5px">${escapeHtml(r.campaign.winning_message)}</div>
+      ${d ? `<div class="metrics">
+        <div class="metric"><div class="n">${yn(d.leaked_in_vulnerable_mode)}</div><div class="l">Leak (vuln)</div></div>
+        <div class="metric"><div class="n">${yn(d.leaked_in_protected_mode)}</div><div class="l">Leak (protected)</div></div>
+      </div>` : `<div class="tag-yes">Не удалось подтвердить E2E (см. лог).</div>`}
+      <div class="sub" style="margin-top:8px">Всего попыток в поиске: ${r.campaign.attempts.length}</div>`;
+  }
+}
+
+function pct(x) { return x === null || x === undefined ? '—' : Math.round(x * 100) + '%'; }
+function yn(x) { return x ? '<span class="tag-yes">да</span>' : '<span class="tag-no">нет</span>'; }
+function escapeHtml(s) { const d = document.createElement('div'); d.innerText = s; return d.innerHTML; }
+
+async function loadFindings() {
+  const r = await fetch('/api/findings');
+  const rows = await r.json();
+  const tbody = document.querySelector('#findingsTable tbody');
+  tbody.innerHTML = rows.map(f => `
+    <tr class="finding-row" onclick="showFinding('${f.file}')">
+      <td>${f.file}</td>
+      <td style="font-size:11px">${f.found_by}</td>
+      <td>${yn(f.persisted)}</td>
+      <td>${yn(f.leaked_vulnerable)}</td>
+      <td>${yn(f.leaked_protected)}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="sub">Пока нет находок.</td></tr>';
+}
+
+async function showFinding(name) {
+  const r = await fetch(`/api/findings/${encodeURIComponent(name)}`);
+  const data = await r.json();
+  const el = document.getElementById('findingDetail');
+  el.textContent = JSON.stringify(data, null, 2);
+  el.style.display = 'block';
+}
+
+loadConfig();
+loadFindings();
+</script>
+</body>
+</html>
