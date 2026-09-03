@@ -98,6 +98,41 @@ class MongoEvidence:
         return result.deleted_count
 
 
+class SemanticMemoryEvidence:
+    """Evidence collector for the *user-scoped* memory tier (`semantic_memories`)
+    -- distinct from `MongoEvidence`, which reads the unscoped
+    `agent_policy_memories` tier. Used by the direct cross-user leak scenario
+    (scenarios/cross_user_direct_memory_leak.py) to confirm a scope=user fact
+    was actually written before checking whether it leaked to a different
+    user. The stand's own read path (`SemanticRepo.list_for_context`) filters
+    this collection by `user_id` before it ever reaches the model, so this
+    tier is expected to behave differently from the unscoped policy tier --
+    that comparison is the point of testing both.
+    """
+
+    def __init__(
+        self,
+        mongo_uri: str = "mongodb://localhost:27017",
+        db: str = "agent_memory",
+    ) -> None:
+        self._col = MongoClient(mongo_uri)[db]["semantic_memories"]
+
+    def find_by_user(self, user_id: str) -> list[dict[str, Any]]:
+        return [
+            {k: v for k, v in doc.items() if k != "_id"}
+            for doc in self._col.find({"user_id": user_id})
+        ]
+
+    def delete_by_user(self, user_id: str) -> int:
+        """Cleanup keyed on `user_id` rather than session id: scope=user
+        facts don't carry a `source_session_id` field, and `user_id` is
+        exactly the isolation boundary this scenario is testing, so it's a
+        safe, precise cleanup key -- the poisoner identity is a disposable
+        test account either way."""
+        result = self._col.delete_many({"user_id": user_id})
+        return result.deleted_count
+
+
 class InvestServerEvidence:
     """Direct read of invest-server (port 8200), bypassing the agent entirely.
 

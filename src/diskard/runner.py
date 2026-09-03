@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from diskard.adapters.investment_stand import InvestServerEvidence, MongoEvidence, StandClient
+from diskard.adapters.investment_stand import (
+    InvestServerEvidence,
+    MongoEvidence,
+    SemanticMemoryEvidence,
+    StandClient,
+)
 from diskard.models import Actor, Operation
 
 
@@ -14,12 +19,21 @@ def make_dispatch(
     mongo: MongoEvidence,
     invest: InvestServerEvidence,
     identities: dict[str, Actor],
+    semantic: SemanticMemoryEvidence | None = None,
 ):
     async def dispatch(inputs: Operation, trace: Any) -> dict:
         actor = identities[inputs.actor_cus]
 
         if inputs.phase == "snapshot_policy":
             return {"policy": mongo.snapshot()}
+
+        if inputs.phase == "semantic_snapshot":
+            if semantic is None:
+                raise RuntimeError(
+                    "semantic_snapshot requires make_dispatch(..., "
+                    "semantic=SemanticMemoryEvidence())"
+                )
+            return {"facts": semantic.find_by_user(inputs.actor_cus)}
 
         if inputs.phase == "canary_fetch":
             if not actor.access_token:

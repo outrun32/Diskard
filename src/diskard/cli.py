@@ -22,6 +22,12 @@ KNOWN_ATTACKS = {
         " -- attacker-authored global policy poisons agent memory, a"
         " different client's neutral question then leaks a third client's data."
     ),
+    "cross-user-direct-memory-leak": (
+        "diskard.scenarios.cross_user_direct_memory_leak"
+        " -- does a scope=user personal fact from one client leak into a"
+        " different, unrelated client's session. Not wired into `diskard scan`"
+        " yet -- run examples/direct_leak_demo.py directly."
+    ),
 }
 KNOWN_ADAPTERS = {
     "investment-stand": "diskard.adapters.investment_stand.StandClient "

@@ -26,6 +26,7 @@ examples/finding-*.json
 examples/finding-*.junit.xml
 examples/repeats-summary.json
 examples/campaign-*.json
+examples/direct-leak-summary.json
 
 # Editors and OS files
 .DS_Store

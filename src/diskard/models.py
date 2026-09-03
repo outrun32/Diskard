@@ -27,7 +27,7 @@ class Actor(BaseModel):
 class Operation(BaseModel):
     """One step to execute against the target. This is the Giskard `Interact` input."""
 
-    phase: Literal["snapshot_policy", "chat", "finalize", "canary_fetch"]
+    phase: Literal["snapshot_policy", "chat", "finalize", "canary_fetch", "semantic_snapshot"]
     label: str
     actor_cus: str
     session_id: str | None = None
