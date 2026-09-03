@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diskard"
+version = "0.1.0"
+description = "Lifecycle-aware security testing for AI agents with persistent memory"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+keywords = ["ai-security", "agent-security", "red-teaming", "memory-poisoning"]
+authors = [
+  { name = "YAKOV" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+]
+dependencies = [
+  "giskard-checks==1.0.3",
+  "giskard-scan==1.0.0",
+  "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.2,<2",
+  "ruff>=0.13,<1",
+]
+openai = [
+  "giskard-agents[openai]>=1.0.2,<2",
+]
+
+[project.scripts]
+diskard = "diskard.cli:main"
+
+[project.urls]
+Repository = "https://github.com/outrun32/Diskard"
+Issues = "https://github.com/outrun32/Diskard/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diskard"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
