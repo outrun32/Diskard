@@ -20,6 +20,13 @@ venv/
 artifacts/
 runs/
 
+# Local run outputs from examples/ (test credentials, generated findings)
+examples/.identities.json
+examples/finding-*.json
+examples/finding-*.junit.xml
+examples/repeats-summary.json
+examples/campaign-*.json
+
 # Editors and OS files
 .DS_Store
 .idea/

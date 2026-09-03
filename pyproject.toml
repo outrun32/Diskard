@@ -24,6 +24,8 @@ dependencies = [
   "giskard-checks==1.0.3",
   "giskard-scan==1.0.0",
   "httpx>=0.28,<1",
+  "pyjwt>=2.13.0",
+  "pymongo>=4.17.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,11 @@ dev = [
 ]
 openai = [
   "giskard-agents[openai]>=1.0.2,<2",
+]
+ui = [
+    "fastapi>=0.141.1",
+    "python-dotenv>=1.2.3",
+    "uvicorn[standard]>=0.52.4",
 ]
 
 [project.scripts]
