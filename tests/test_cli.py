@@ -39,3 +39,17 @@ def test_scan_help_does_not_touch_the_network():
     with pytest.raises(SystemExit) as exc_info:
         main(["scan", "--help"])
     assert exc_info.value.code == 0
+
+
+def test_scan_rejects_unknown_attack():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["scan", "--attack", "not-a-real-attack", "--help"])
+    assert exc_info.value.code == 2
+
+
+def test_list_attacks_covers_all_three_families(capsys):
+    main(["list", "attacks"])
+    out = capsys.readouterr().out
+    assert "cross-user-global-policy-poisoning" in out
+    assert "cross-user-direct-memory-leak" in out
+    assert "compaction-policy-poisoning" in out

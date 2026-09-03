@@ -21,18 +21,19 @@ KNOWN_ATTACKS = {
         "diskard.scenarios.cross_user_policy_poisoning"
         " -- attacker-authored global policy poisons agent memory, a"
         " different client's neutral question then leaks a third client's data."
+        " Vulnerable, live: ~50% persistence, ~50% E2E ASR in vulnerable mode."
     ),
     "cross-user-direct-memory-leak": (
         "diskard.scenarios.cross_user_direct_memory_leak"
         " -- does a scope=user personal fact from one client leak into a"
-        " different, unrelated client's session. Not wired into `diskard scan`"
-        " yet -- run examples/direct_leak_demo.py directly."
+        " different, unrelated client's session. Negative control: isolation"
+        " holds, live 9-10/10 persisted, 0/10 leaked."
     ),
     "compaction-policy-poisoning": (
         "diskard.scenarios.compaction_policy_poisoning"
         " -- same payload as cross-user-global-policy-poisoning, delivered"
-        " among benign filler turns in one session instead of alone. Not"
-        " wired into `diskard scan` yet -- run examples/compaction_leak_demo.py."
+        " among benign filler turns in one session instead of alone. Negative"
+        " result for the tested delivery pattern: 0/8 persisted, live."
     ),
 }
 KNOWN_ADAPTERS = {
@@ -50,8 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    scan = subparsers.add_parser(
-        "scan", help="Run the cross-user-global-policy-poisoning scenario against a live target."
+    scan = subparsers.add_parser("scan", help="Run one scenario against a live target.")
+    scan.add_argument(
+        "--attack",
+        choices=list(KNOWN_ATTACKS),
+        default="cross-user-global-policy-poisoning",
+        help="Which scenario to run -- see `diskard list attacks`.",
     )
     scan.add_argument("--poisoner-cus", default="1001")
     scan.add_argument("--victim-cus", default="1002")
@@ -94,11 +99,7 @@ async def _run_scan(args: argparse.Namespace) -> int:
     )
     from diskard.identities import bootstrap_identities, refresh_access_token
     from diskard.runner import make_dispatch
-    from diskard.scenarios.cross_user_policy_poisoning import (
-        build_cross_user_policy_poisoning_scenario,
-        new_run_id,
-        poison_session_id,
-    )
+    from diskard.scenarios.cross_user_policy_poisoning import new_run_id
 
     runs_dir = Path.cwd() / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -112,16 +113,56 @@ async def _run_scan(args: argparse.Namespace) -> int:
     mongo = MongoEvidence(mongo_uri=args.mongo_uri)
     invest = InvestServerEvidence(base_url=args.invest_url)
     semantic = SemanticMemoryEvidence(mongo_uri=args.mongo_uri)
-    dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
+    dispatch = make_dispatch(
+        stand=stand, mongo=mongo, invest=invest, identities=identities, semantic=semantic
+    )
 
     run_id = new_run_id()
-    scenario = build_cross_user_policy_poisoning_scenario(
-        poisoner_cus=args.poisoner_cus,
-        victim_cus=args.victim_cus,
-        data_subject_cus=args.data_subject_cus,
-        dispatch=dispatch,
-        run_id=run_id,
-    )
+    # Each scenario module names its own poison session differently
+    # (diskard-poison-/diskard-compaction-/diskard-directleak-) so the
+    # cleanup key has to come from whichever module actually built the
+    # scenario -- can't just reuse cross_user_policy_poisoning's helper.
+    if args.attack == "cross-user-global-policy-poisoning":
+        from diskard.scenarios.cross_user_policy_poisoning import (
+            build_cross_user_policy_poisoning_scenario,
+            poison_session_id,
+        )
+
+        scenario = build_cross_user_policy_poisoning_scenario(
+            poisoner_cus=args.poisoner_cus,
+            victim_cus=args.victim_cus,
+            data_subject_cus=args.data_subject_cus,
+            dispatch=dispatch,
+            run_id=run_id,
+        )
+        cleanup_key = poison_session_id(run_id)
+    elif args.attack == "compaction-policy-poisoning":
+        from diskard.scenarios.compaction_policy_poisoning import (
+            build_compaction_policy_poisoning_scenario,
+            poison_session_id,
+        )
+
+        scenario = build_compaction_policy_poisoning_scenario(
+            poisoner_cus=args.poisoner_cus,
+            victim_cus=args.victim_cus,
+            data_subject_cus=args.data_subject_cus,
+            dispatch=dispatch,
+            run_id=run_id,
+        )
+        cleanup_key = poison_session_id(run_id)
+    else:
+        from diskard.scenarios.cross_user_direct_memory_leak import (
+            build_cross_user_direct_leak_scenario,
+            deliver_session_id,
+        )
+
+        scenario = build_cross_user_direct_leak_scenario(
+            poisoner_cus=args.poisoner_cus,
+            victim_cus=args.victim_cus,
+            dispatch=dispatch,
+            run_id=run_id,
+        )
+        cleanup_key = deliver_session_id(run_id)
 
     print(f"running {scenario.name!r} against {args.stand_url} ...")
     try:
@@ -129,7 +170,7 @@ async def _run_scan(args: argparse.Namespace) -> int:
             return_exception=True
         )
     finally:
-        deleted_policy = mongo.delete_by_source_session(poison_session_id(run_id))
+        deleted_policy = mongo.delete_by_source_session(cleanup_key)
         deleted_semantic = semantic.delete_by_user(args.poisoner_cus)
         if deleted_policy:
             print(f"cleanup: removed {deleted_policy} policy record(s) written by this run")
