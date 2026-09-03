@@ -30,6 +30,8 @@ from diskard.models import Actor  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
+    new_run_id,
+    poison_session_id,
 )
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
@@ -102,18 +104,25 @@ async def main() -> None:
     print("confirming end-to-end (fresh poison session, real victim + canary check)...")
 
     dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
+    confirm_run_id = new_run_id()
     scenario = build_cross_user_policy_poisoning_scenario(
         poisoner_cus=POISONER_CUS,
         victim_cus=VICTIM_CUS,
         data_subject_cus=DATA_SUBJECT_CUS,
         dispatch=dispatch,
+        run_id=confirm_run_id,
         poison_message=campaign.winning_message,
     )
 
     from giskard.checks import Suite
 
     suite = Suite(name="diskard-auto-attack-confirm", scenarios=[scenario])
-    suite_result = await suite.run(return_exception=True)
+    try:
+        suite_result = await suite.run(return_exception=True)
+    finally:
+        deleted = mongo.delete_by_source_session(poison_session_id(confirm_run_id))
+        if deleted:
+            print(f"cleanup: removed {deleted} policy record(s) written by the confirm run")
 
     await stand.aclose()
     await invest.aclose()

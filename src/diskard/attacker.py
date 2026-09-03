@@ -225,6 +225,14 @@ async def run_auto_attack(
     Caller is responsible for confirming the winning message end-to-end
     (leak in vulnerable mode, no leak in protected mode) via the formal
     scenario -- see examples/auto_attack.py.
+
+    Every attempt's session -- persisting or not -- is cleaned up from the
+    target's shared policy memory immediately after being scored: only the
+    winning message *text* needs to survive for the caller's later confirm
+    run (which delivers it fresh, in its own session), not the search
+    session's own database row. Search attempts freely rewrite the same
+    data_subject_cus, so leaving them in place would otherwise let earlier
+    attempts contaminate whether a later one looks like it persisted.
     """
     campaign = AttackCampaign(data_subject_cus=data_subject_cus)
 
@@ -233,9 +241,12 @@ async def run_auto_attack(
 
         baseline = mongo.snapshot()
         session_id = f"diskard-auto-{uuid4().hex[:8]}"
-        chat_result = await stand.chat(poisoner.api_key, session_id, message, "vulnerable")
-        finalize_result = await stand.finalize(poisoner.api_key, session_id)
-        after = mongo.snapshot()
+        try:
+            chat_result = await stand.chat(poisoner.api_key, session_id, message, "vulnerable")
+            finalize_result = await stand.finalize(poisoner.api_key, session_id)
+            after = mongo.snapshot()
+        finally:
+            mongo.delete_by_source_session(session_id)
 
         new_records = MongoEvidence.new_records(baseline, after)
         concrete_records = [r for r in new_records if data_subject_cus in r.get("statement", "")]

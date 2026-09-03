@@ -26,6 +26,8 @@ from diskard.models import Actor  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
+    new_run_id,
+    poison_session_id,
 )
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
@@ -63,11 +65,13 @@ async def main() -> None:
     invest = InvestServerEvidence()
     dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
 
+    run_id = new_run_id()
     scenario = build_cross_user_policy_poisoning_scenario(
         poisoner_cus=POISONER_CUS,
         victim_cus=VICTIM_CUS,
         data_subject_cus=DATA_SUBJECT_CUS,
         dispatch=dispatch,
+        run_id=run_id,
     )
 
     print(
@@ -77,7 +81,12 @@ async def main() -> None:
     from giskard.checks import Suite
 
     suite = Suite(name="diskard-p0-suite", scenarios=[scenario])
-    suite_result = await suite.run(return_exception=True)
+    try:
+        suite_result = await suite.run(return_exception=True)
+    finally:
+        deleted = mongo.delete_by_source_session(poison_session_id(run_id))
+        if deleted:
+            print(f"cleanup: removed {deleted} policy record(s) written by this run")
 
     await stand.aclose()
     await invest.aclose()

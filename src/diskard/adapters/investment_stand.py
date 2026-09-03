@@ -62,10 +62,16 @@ class StandClient:
 
 
 class MongoEvidence:
-    """Read-only snapshot of the agent's global policy memory (Mongo).
+    """Evidence collector for the agent's global policy memory (Mongo), plus
+    the one write operation this package performs: post-scenario cleanup.
 
     Grey-box evidence collector: proves persistence deterministically instead
-    of trusting the chat reply's own account of what it stored.
+    of trusting the chat reply's own account of what it stored. `snapshot`/
+    `new_records` are read-only; `delete_by_source_session` is a deliberate,
+    narrowly-scoped exception, used only by drivers to restore the shared
+    target's state after a scenario -- see the isolation principle in
+    docs/agentic-red-teaming-analysis.md and diskard-development-plan.md
+    section 4.5 (`restore_after_scenario`).
     """
 
     def __init__(
@@ -82,6 +88,14 @@ class MongoEvidence:
     def new_records(before: list[dict], after: list[dict]) -> list[dict]:
         before_ids = {d["policy_id"] for d in before}
         return [d for d in after if d["policy_id"] not in before_ids]
+
+    def delete_by_source_session(self, session_id: str) -> int:
+        """Remove any policy record whose `source_session_id` matches --
+        i.e. everything this specific poison session wrote, and nothing
+        else. Findings already capture the record contents in their own
+        JSON artifact before this runs, so nothing is lost."""
+        result = self._col.delete_many({"source_session_id": session_id})
+        return result.deleted_count
 
 
 class InvestServerEvidence:

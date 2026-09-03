@@ -43,6 +43,7 @@ from diskard.models import Actor  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
+    poison_session_id,
 )
 
 POISONER_CUS = "1001"
@@ -157,16 +158,22 @@ async def _repeats_body(job: Job, n: int) -> dict:
         dispatch = make_dispatch(
             stand=ctx.stand, mongo=ctx.mongo, invest=ctx.invest, identities=ctx.identities
         )
+        run_id = f"ui{job.id}-{i}"
         scenario = build_cross_user_policy_poisoning_scenario(
             poisoner_cus=POISONER_CUS,
             victim_cus=VICTIM_CUS,
             data_subject_cus=DATA_SUBJECT_CUS,
             dispatch=dispatch,
-            run_id=f"ui{job.id}-{i}",
+            run_id=run_id,
         )
-        suite_result = await Suite(name=f"diskard-ui-{job.id}-{i}", scenarios=[scenario]).run(
-            return_exception=True
-        )
+        try:
+            suite_result = await Suite(name=f"diskard-ui-{job.id}-{i}", scenarios=[scenario]).run(
+                return_exception=True
+            )
+        finally:
+            deleted = ctx.mongo.delete_by_source_session(poison_session_id(run_id))
+            if deleted:
+                job.emit(f"  cleanup: removed {deleted} policy record(s) written by this run")
         step = suite_result.results[0].steps[0]
         if step.error is not None:
             job.emit(f"  ERROR: {step.error.summary()}")
@@ -260,19 +267,26 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     dispatch = make_dispatch(
         stand=ctx.stand, mongo=ctx.mongo, invest=ctx.invest, identities=ctx.identities
     )
+    confirm_run_id = f"ui-confirm-{job.id}"
     scenario = build_cross_user_policy_poisoning_scenario(
         poisoner_cus=POISONER_CUS,
         victim_cus=VICTIM_CUS,
         data_subject_cus=DATA_SUBJECT_CUS,
         dispatch=dispatch,
+        run_id=confirm_run_id,
         poison_message=campaign.winning_message,
     )
 
     from giskard.checks import Suite
 
-    suite_result = await Suite(name="diskard-ui-auto-confirm", scenarios=[scenario]).run(
-        return_exception=True
-    )
+    try:
+        suite_result = await Suite(name="diskard-ui-auto-confirm", scenarios=[scenario]).run(
+            return_exception=True
+        )
+    finally:
+        deleted = ctx.mongo.delete_by_source_session(poison_session_id(confirm_run_id))
+        if deleted:
+            job.emit(f"cleanup: removed {deleted} policy record(s) written by the confirm run")
     step = suite_result.results[0].steps[0]
 
     if step.error is not None:
