@@ -35,6 +35,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from diskard.adapters.investment_stand import (  # noqa: E402
     InvestServerEvidence,
     MongoEvidence,
+    SemanticMemoryEvidence,
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
@@ -77,6 +78,7 @@ class Ctx:
     stand: StandClient
     mongo: MongoEvidence
     invest: InvestServerEvidence
+    semantic: SemanticMemoryEvidence
     attacker: AttackerLLM
     identities: dict[str, Actor]
 
@@ -109,6 +111,7 @@ async def lifespan(app: FastAPI):
     ctx.stand = StandClient()
     ctx.mongo = MongoEvidence()
     ctx.invest = InvestServerEvidence()
+    ctx.semantic = SemanticMemoryEvidence()
     ctx.attacker = AttackerLLM()
     ctx.identities = await _bootstrap_identities()
     yield
@@ -171,9 +174,16 @@ async def _repeats_body(job: Job, n: int) -> dict:
                 return_exception=True
             )
         finally:
-            deleted = ctx.mongo.delete_by_source_session(poison_session_id(run_id))
-            if deleted:
-                job.emit(f"  cleanup: removed {deleted} policy record(s) written by this run")
+            deleted_policy = ctx.mongo.delete_by_source_session(poison_session_id(run_id))
+            deleted_semantic = ctx.semantic.delete_by_user(POISONER_CUS)
+            if deleted_policy:
+                job.emit(
+                    f"  cleanup: removed {deleted_policy} policy record(s) written by this run"
+                )
+            if deleted_semantic:
+                job.emit(
+                    f"  cleanup: removed {deleted_semantic} semantic fact(s) written by this run"
+                )
         step = suite_result.results[0].steps[0]
         if step.error is not None:
             job.emit(f"  ERROR: {step.error.summary()}")
@@ -251,6 +261,7 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
         attacker=ctx.attacker,
         max_attempts=max_attempts,
         on_attempt=on_attempt,
+        semantic=ctx.semantic,
     )
     campaign_path = EXAMPLES_DIR / f"campaign-ui-{job.id}.json"
     campaign_path.write_text(json.dumps(campaign.to_dict(), indent=2, ensure_ascii=False))
@@ -284,9 +295,16 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
             return_exception=True
         )
     finally:
-        deleted = ctx.mongo.delete_by_source_session(poison_session_id(confirm_run_id))
-        if deleted:
-            job.emit(f"cleanup: removed {deleted} policy record(s) written by the confirm run")
+        deleted_policy = ctx.mongo.delete_by_source_session(poison_session_id(confirm_run_id))
+        deleted_semantic = ctx.semantic.delete_by_user(POISONER_CUS)
+        if deleted_policy:
+            job.emit(
+                f"cleanup: removed {deleted_policy} policy record(s) written by the confirm run"
+            )
+        if deleted_semantic:
+            job.emit(
+                f"cleanup: removed {deleted_semantic} semantic fact(s) written by the confirm run"
+            )
     step = suite_result.results[0].steps[0]
 
     if step.error is not None:

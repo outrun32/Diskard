@@ -86,7 +86,12 @@ async def _run_scan(args: argparse.Namespace) -> int:
 
     from giskard.checks import Suite
 
-    from diskard.adapters.investment_stand import InvestServerEvidence, MongoEvidence, StandClient
+    from diskard.adapters.investment_stand import (
+        InvestServerEvidence,
+        MongoEvidence,
+        SemanticMemoryEvidence,
+        StandClient,
+    )
     from diskard.identities import bootstrap_identities, refresh_access_token
     from diskard.runner import make_dispatch
     from diskard.scenarios.cross_user_policy_poisoning import (
@@ -106,6 +111,7 @@ async def _run_scan(args: argparse.Namespace) -> int:
     stand = StandClient(base_url=args.stand_url)
     mongo = MongoEvidence(mongo_uri=args.mongo_uri)
     invest = InvestServerEvidence(base_url=args.invest_url)
+    semantic = SemanticMemoryEvidence(mongo_uri=args.mongo_uri)
     dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
 
     run_id = new_run_id()
@@ -123,9 +129,12 @@ async def _run_scan(args: argparse.Namespace) -> int:
             return_exception=True
         )
     finally:
-        deleted = mongo.delete_by_source_session(poison_session_id(run_id))
-        if deleted:
-            print(f"cleanup: removed {deleted} policy record(s) written by this run")
+        deleted_policy = mongo.delete_by_source_session(poison_session_id(run_id))
+        deleted_semantic = semantic.delete_by_user(args.poisoner_cus)
+        if deleted_policy:
+            print(f"cleanup: removed {deleted_policy} policy record(s) written by this run")
+        if deleted_semantic:
+            print(f"cleanup: removed {deleted_semantic} semantic fact(s) written by this run")
         await stand.aclose()
         await invest.aclose()
 

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from diskard.adapters.investment_stand import (  # noqa: E402
     InvestServerEvidence,
     MongoEvidence,
+    SemanticMemoryEvidence,
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
@@ -52,6 +53,7 @@ async def main() -> None:
     stand = StandClient()
     mongo = MongoEvidence()
     invest = InvestServerEvidence()
+    semantic = SemanticMemoryEvidence()
     dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
 
     from giskard.checks import Suite
@@ -74,9 +76,18 @@ async def main() -> None:
                 return_exception=True
             )
         finally:
-            deleted = mongo.delete_by_source_session(poison_session_id(run_id))
-            if deleted:
-                print(f"  cleanup: removed {deleted} policy record(s) written by this run")
+            deleted_policy = mongo.delete_by_source_session(poison_session_id(run_id))
+            # The benign filler turns also generate scope=user semantic facts
+            # for the poisoner; they don't affect the victim's context (that
+            # tier is user-scoped) but must be cleaned up too, or they pile up
+            # in the shared stand -- exactly the isolation problem run 1 of this
+            # scenario exposed when leftover records from earlier sessions were
+            # still causing phantom leaks.
+            deleted_semantic = semantic.delete_by_user(POISONER_CUS)
+            if deleted_policy:
+                print(f"  cleanup: removed {deleted_policy} policy record(s) written by this run")
+            if deleted_semantic:
+                print(f"  cleanup: removed {deleted_semantic} semantic fact(s) written by this run")
 
         result = suite_result.results[0]
         step = result.steps[0]

@@ -22,6 +22,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 from diskard.adapters.investment_stand import (  # noqa: E402
     InvestServerEvidence,
     MongoEvidence,
+    SemanticMemoryEvidence,
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
@@ -68,6 +69,7 @@ async def main() -> None:
     stand = StandClient()
     mongo = MongoEvidence()
     invest = InvestServerEvidence()
+    semantic = SemanticMemoryEvidence()
     attacker = AttackerLLM()
 
     async def on_attempt(attempt):
@@ -85,6 +87,7 @@ async def main() -> None:
         attacker=attacker,
         max_attempts=max_attempts,
         on_attempt=on_attempt,
+        semantic=semantic,
     )
 
     campaign_path = Path(__file__).resolve().parent / f"campaign-{DATA_SUBJECT_CUS}.json"
@@ -120,9 +123,14 @@ async def main() -> None:
     try:
         suite_result = await suite.run(return_exception=True)
     finally:
-        deleted = mongo.delete_by_source_session(poison_session_id(confirm_run_id))
-        if deleted:
-            print(f"cleanup: removed {deleted} policy record(s) written by the confirm run")
+        deleted_policy = mongo.delete_by_source_session(poison_session_id(confirm_run_id))
+        deleted_semantic = semantic.delete_by_user(POISONER_CUS)
+        if deleted_policy:
+            print(f"cleanup: removed {deleted_policy} policy record(s) written by the confirm run")
+        if deleted_semantic:
+            print(
+                f"cleanup: removed {deleted_semantic} semantic fact(s) written by the confirm run"
+            )
 
     await stand.aclose()
     await invest.aclose()

@@ -28,7 +28,7 @@ from uuid import uuid4
 
 import httpx
 
-from diskard.adapters.investment_stand import MongoEvidence, StandClient
+from diskard.adapters.investment_stand import MongoEvidence, SemanticMemoryEvidence, StandClient
 from diskard.models import Actor
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -218,6 +218,7 @@ async def run_auto_attack(
     attacker: AttackerLLM,
     max_attempts: int = 6,
     on_attempt: Callable[[AttemptResult], Awaitable[None]] | None = None,
+    semantic: SemanticMemoryEvidence | None = None,
 ) -> AttackCampaign:
     """Hill-climb on persistence (W1/W2) only -- the actual bottleneck, per
     the comment in scenarios/cross_user_policy_poisoning.py. Stops at the
@@ -232,7 +233,13 @@ async def run_auto_attack(
     run (which delivers it fresh, in its own session), not the search
     session's own database row. Search attempts freely rewrite the same
     data_subject_cus, so leaving them in place would otherwise let earlier
-    attempts contaminate whether a later one looks like it persisted.
+    attempts contaminate whether a later one looks like it persisted. Each
+    chat+finalize turn also generates a scope=user fact for the poisoner
+    (regardless of whether anything got promoted to scope=global) -- pass
+    `semantic` to clean those up too; every attempt shares one poisoner
+    identity, so with `max_attempts` in the double digits this is the
+    single highest-volume source of leftover semantic_memories debris
+    across the whole toolkit if left uncleaned.
     """
     campaign = AttackCampaign(data_subject_cus=data_subject_cus)
 
@@ -247,6 +254,8 @@ async def run_auto_attack(
             after = mongo.snapshot()
         finally:
             mongo.delete_by_source_session(session_id)
+            if semantic is not None:
+                semantic.delete_by_user(poisoner.cus)
 
         new_records = MongoEvidence.new_records(baseline, after)
         concrete_records = [r for r in new_records if data_subject_cus in r.get("statement", "")]

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from diskard.adapters.investment_stand import (  # noqa: E402
     InvestServerEvidence,
     MongoEvidence,
+    SemanticMemoryEvidence,
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
@@ -63,6 +64,7 @@ async def main() -> None:
     stand = StandClient()
     mongo = MongoEvidence()
     invest = InvestServerEvidence()
+    semantic = SemanticMemoryEvidence()
     dispatch = make_dispatch(stand=stand, mongo=mongo, invest=invest, identities=identities)
 
     run_id = new_run_id()
@@ -84,9 +86,12 @@ async def main() -> None:
     try:
         suite_result = await suite.run(return_exception=True)
     finally:
-        deleted = mongo.delete_by_source_session(poison_session_id(run_id))
-        if deleted:
-            print(f"cleanup: removed {deleted} policy record(s) written by this run")
+        deleted_policy = mongo.delete_by_source_session(poison_session_id(run_id))
+        deleted_semantic = semantic.delete_by_user(POISONER_CUS)
+        if deleted_policy:
+            print(f"cleanup: removed {deleted_policy} policy record(s) written by this run")
+        if deleted_semantic:
+            print(f"cleanup: removed {deleted_semantic} semantic fact(s) written by this run")
 
     await stand.aclose()
     await invest.aclose()
