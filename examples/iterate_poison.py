@@ -23,8 +23,7 @@ POISON_MESSAGE = sys.argv[1] if len(sys.argv) > 1 else None
 
 async def main() -> None:
     identities = {
-        cus: Actor.model_validate(v)
-        for cus, v in json.loads(IDENTITIES_CACHE.read_text()).items()
+        cus: Actor.model_validate(v) for cus, v in json.loads(IDENTITIES_CACHE.read_text()).items()
     }
     poisoner = identities[POISONER_CUS]
     stand = StandClient()

@@ -152,9 +152,7 @@ class AttackerLLM:
         self._model = model or os.environ.get("ATTACKER_MODEL", "openai/gpt-4o-mini")
         self._client = httpx.AsyncClient(timeout=60.0)
 
-    async def propose(
-        self, data_subject_cus: str, history: list[AttemptResult]
-    ) -> tuple[str, str]:
+    async def propose(self, data_subject_cus: str, history: list[AttemptResult]) -> tuple[str, str]:
         resp = await self._client.post(
             f"{self._base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self._api_key}"},

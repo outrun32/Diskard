@@ -70,7 +70,9 @@ async def main() -> None:
         dispatch=dispatch,
     )
 
-    print(f"running scenario {scenario.name!r} ({len(scenario.steps[0].interacts)} interactions)...")
+    print(
+        f"running scenario {scenario.name!r} ({len(scenario.steps[0].interacts)} interactions)..."
+    )
 
     from giskard.checks import Suite
 

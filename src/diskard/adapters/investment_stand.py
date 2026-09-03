@@ -76,10 +76,7 @@ class MongoEvidence:
         self._col = MongoClient(mongo_uri)[db]["agent_policy_memories"]
 
     def snapshot(self) -> list[dict[str, Any]]:
-        return [
-            {k: v for k, v in doc.items() if k != "_id"}
-            for doc in self._col.find({})
-        ]
+        return [{k: v for k, v in doc.items() if k != "_id"} for doc in self._col.find({})]
 
     @staticmethod
     def new_records(before: list[dict], after: list[dict]) -> list[dict]:

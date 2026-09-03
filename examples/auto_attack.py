@@ -97,8 +97,7 @@ async def main() -> None:
         return
 
     print(
-        f"\nwinning wording found at attempt {campaign.winning_index}: "
-        f"{campaign.winning_message!r}"
+        f"\nwinning wording found at attempt {campaign.winning_index}: {campaign.winning_message!r}"
     )
     print("confirming end-to-end (fresh poison session, real victim + canary check)...")
 

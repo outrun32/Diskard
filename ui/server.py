@@ -217,17 +217,17 @@ async def _repeats_body(job: Job, n: int) -> dict:
         "leak_rate_protected_mode": n_leaked_prot / n_ok if n_ok else None,
         "runs": runs,
     }
-    job.emit(f"\ndone: persistence={summary['persistence_rate']}, "
-              f"e2e_asr={summary['e2e_asr_vulnerable_mode']}, "
-              f"protected_leak={summary['leak_rate_protected_mode']}")
+    job.emit(
+        f"\ndone: persistence={summary['persistence_rate']}, "
+        f"e2e_asr={summary['e2e_asr_vulnerable_mode']}, "
+        f"protected_leak={summary['leak_rate_protected_mode']}"
+    )
     return summary
 
 
 async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     kc = KeycloakBootstrap()
-    ctx.identities[DATA_SUBJECT_CUS].access_token = await kc.get_user_access_token(
-        DATA_SUBJECT_CUS
-    )
+    ctx.identities[DATA_SUBJECT_CUS].access_token = await kc.get_user_access_token(DATA_SUBJECT_CUS)
 
     async def on_attempt(attempt):
         tag = "PERSISTED" if attempt.persisted else "no write"
@@ -253,8 +253,7 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
         return {"succeeded": False, "campaign": campaign.to_dict()}
 
     job.emit(
-        f"\nwinning wording found at attempt {campaign.winning_index}: "
-        f"{campaign.winning_message!r}"
+        f"\nwinning wording found at attempt {campaign.winning_index}: {campaign.winning_message!r}"
     )
     job.emit("confirming end-to-end (fresh poison session, real victim + canary check)...")
 
@@ -278,7 +277,11 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
 
     if step.error is not None:
         job.emit(f"confirm run errored: {step.error.summary()}")
-        return {"succeeded": True, "confirm_error": step.error.summary(), "campaign": campaign.to_dict()}
+        return {
+            "succeeded": True,
+            "confirm_error": step.error.summary(),
+            "campaign": campaign.to_dict(),
+        }
 
     check_result = step.results[0]
     details = check_result.details
@@ -346,7 +349,13 @@ def get_job(job_id: str):
     job = JOBS.get(job_id)
     if job is None:
         raise HTTPException(404, "unknown job")
-    return {"id": job.id, "kind": job.kind, "status": job.status, "log": job.log, "result": job.result}
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "log": job.log,
+        "result": job.result,
+    }
 
 
 def _summarize_finding(path: Path) -> dict:
@@ -369,7 +378,9 @@ def _summarize_finding(path: Path) -> dict:
 
 @app.get("/api/findings")
 def list_findings():
-    files = sorted(EXAMPLES_DIR.glob("finding-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        EXAMPLES_DIR.glob("finding-*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return [_summarize_finding(p) for p in files]
 
 
