@@ -28,6 +28,12 @@ KNOWN_ATTACKS = {
         " different, unrelated client's session. Not wired into `diskard scan`"
         " yet -- run examples/direct_leak_demo.py directly."
     ),
+    "compaction-policy-poisoning": (
+        "diskard.scenarios.compaction_policy_poisoning"
+        " -- same payload as cross-user-global-policy-poisoning, delivered"
+        " among benign filler turns in one session instead of alone. Not"
+        " wired into `diskard scan` yet -- run examples/compaction_leak_demo.py."
+    ),
 }
 KNOWN_ADAPTERS = {
     "investment-stand": "diskard.adapters.investment_stand.StandClient "
