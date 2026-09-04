@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -113,6 +114,15 @@ POISONER_CUS = "1001"
 VICTIM_CUS = "1002"
 DATA_SUBJECT_CUS = "1003"
 CONTROL_CUS = "1004"
+
+# Both stand clones (m-melgizin original, outrun32 Azure fork) bind the same
+# ports on purpose, which is exactly why they can't run side by side -- so
+# nothing this process talks to can tell them apart on its own. Set this env
+# var when launching uvicorn to label whichever one is actually behind
+# localhost:8600 right now (e.g. "stand-yakov (Azure) + policy-write fix"),
+# so a screencast of the live console doesn't leave viewers guessing which
+# target/fix state they're looking at.
+TARGET_LABEL = os.environ.get("DISKARD_TARGET_LABEL", "")
 
 # The LLM auto-attacker (attacker.py) hard-codes its system prompt and
 # mechanics to family 1's cus-smuggling goal -- it does not generalize to the
@@ -542,6 +552,7 @@ def get_config():
         "poisoner_cus": POISONER_CUS,
         "victim_cus": VICTIM_CUS,
         "data_subject_cus": DATA_SUBJECT_CUS,
+        "target_label": TARGET_LABEL,
     }
 
 

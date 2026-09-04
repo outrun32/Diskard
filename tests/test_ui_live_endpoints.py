@@ -70,3 +70,12 @@ def test_live_stats_starts_empty():
         resp = client.get("/api/live/stats")
     assert resp.status_code == 200
     assert resp.json() == {}
+
+
+def test_config_exposes_target_label_for_the_screencast_badge():
+    with _client() as client:
+        resp = client.get("/api/config")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "target_label" in body
+    assert set(body) == {"poisoner_cus", "victim_cus", "data_subject_cus", "target_label"}
