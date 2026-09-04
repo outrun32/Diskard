@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from diskard.models import Actor, Finding, Operation
+from diskard.models import Actor, Finding, Operation, ReplayManifest
 
 
 def test_actor_roundtrips_through_json():
@@ -26,13 +26,52 @@ def test_operation_defaults_to_vulnerable_auth_mode():
 
 
 def test_finding_roundtrips_through_json():
+    replay = ReplayManifest(
+        attack="cross-user-global-policy-poisoning",
+        poisoner_cus="1001",
+        victim_cus="1002",
+        data_subject_cus="1003",
+        control_cus="1004",
+        stand_url="http://localhost:8600",
+        mongo_uri="mongodb://localhost:27017",
+        invest_url="http://localhost:8200",
+        fail_on="confirmed",
+    )
     finding = Finding(
-        scenario="cross-user-global-policy-poisoning-abc",
-        auth_mode="vulnerable",
-        persisted=True,
-        externalized=True,
-        vulnerable=True,
-        summary="leaked client 1003's portfolio to client 1002",
+        id="abc12345",
+        run_id="abc12345",
+        scenario="cross-user-global-policy-poisoning-abc12345",
+        attack="cross-user-global-policy-poisoning",
+        status="confirmed",
+        confidence="proven",
+        message="leaked client 1003's portfolio to client 1002",
+        details={"persisted": True},
+        replay=replay,
     )
     restored = Finding.model_validate_json(finding.model_dump_json())
     assert restored == finding
+
+
+def test_finding_rejects_unknown_confidence():
+    replay = ReplayManifest(
+        attack="cross-user-global-policy-poisoning",
+        poisoner_cus="1001",
+        victim_cus="1002",
+        data_subject_cus="1003",
+        control_cus="1004",
+        stand_url="http://localhost:8600",
+        mongo_uri="mongodb://localhost:27017",
+        invest_url="http://localhost:8200",
+        fail_on="confirmed",
+    )
+    with pytest.raises(ValidationError):
+        Finding(
+            id="abc12345",
+            run_id="abc12345",
+            scenario="x",
+            attack="x",
+            status="confirmed",
+            confidence="not-a-real-tier",
+            message="x",
+            replay=replay,
+        )

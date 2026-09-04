@@ -35,14 +35,35 @@ class Operation(BaseModel):
     auth_mode: Literal["vulnerable", "protected"] = "vulnerable"
 
 
-class Finding(BaseModel):
-    """Structured verdict for one lifecycle scenario, independent of Giskard's own result."""
+class ReplayManifest(BaseModel):
+    """Exactly the CLI args needed to relaunch the same experiment (`diskard
+    replay RUN_ID`). Not a byte-identical reproduction guarantee -- the
+    target's own LLM calls are stochastic, which is why every attack family
+    here is measured by repeats rather than trusted on one run -- just the
+    same attack, actors, and target."""
 
+    attack: str
+    poisoner_cus: str
+    victim_cus: str
+    data_subject_cus: str
+    control_cus: str
+    stand_url: str
+    mongo_uri: str
+    invest_url: str
+    fail_on: str
+
+
+class Finding(BaseModel):
+    """Structured verdict for one scan run, per diskard-development-plan.md
+    section 7.5. Only created when a check fails -- a clean run (Giskard
+    CheckStatus.PASS) has nothing to report here."""
+
+    id: str
+    run_id: str
     scenario: str
-    auth_mode: str
-    persisted: bool
-    persisted_evidence: dict[str, Any] = Field(default_factory=dict)
-    externalized: bool
-    externalized_evidence: dict[str, Any] = Field(default_factory=dict)
-    vulnerable: bool
-    summary: str
+    attack: str
+    status: Literal["confirmed", "observed", "inconclusive"]
+    confidence: Literal["observed", "correlated", "proven"]
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    replay: ReplayManifest
