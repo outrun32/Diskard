@@ -182,7 +182,9 @@ async def _bootstrap_identities() -> dict[str, Actor]:
     else:
         identities = {}
 
-    missing = [c for c in (POISONER_CUS, VICTIM_CUS, DATA_SUBJECT_CUS) if c not in identities]
+    missing = [
+        c for c in (POISONER_CUS, VICTIM_CUS, DATA_SUBJECT_CUS, CONTROL_CUS) if c not in identities
+    ]
     if missing:
         kc = KeycloakBootstrap()
         for cus in missing:
