@@ -1,0 +1,72 @@
+"""Endpoint-shape tests for the live console using FastAPI's TestClient --
+no live stand, no Docker. Only covers validation/routing; the actual attack
+run (which needs the real stand) is exercised manually per the plan's
+Task 4."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
+
+
+def _client():
+    # Imported lazily, inside the test, so collection doesn't pay the
+    # import-time cost (identity bootstrap etc.) for the whole test suite --
+    # matches how the rest of this repo keeps CLI imports lazy in cli.py.
+    from fastapi.testclient import TestClient
+
+    from ui.server import app
+
+    return TestClient(app)
+
+
+def test_live_attacks_lists_all_four_with_auto_attack_flag():
+    with _client() as client:
+        resp = client.get("/api/live/attacks")
+    assert resp.status_code == 200
+    body = resp.json()
+    names = {a["name"] for a in body}
+    assert names == {
+        "cross-user-global-policy-poisoning",
+        "cross-user-direct-memory-leak",
+        "compaction-policy-poisoning",
+        "delayed-recommendation-manipulation",
+    }
+    by_name = {a["name"]: a for a in body}
+    assert by_name["cross-user-global-policy-poisoning"]["auto_attack_capable"] is True
+    assert by_name["cross-user-direct-memory-leak"]["auto_attack_capable"] is False
+
+
+def test_live_start_rejects_unknown_attack():
+    with _client() as client:
+        resp = client.post(
+            "/api/live/start", json={"attack": "not-a-real-attack", "driver": "template"}
+        )
+    assert resp.status_code == 400
+
+
+def test_live_start_rejects_auto_attacker_for_non_family_one():
+    with _client() as client:
+        resp = client.post(
+            "/api/live/start",
+            json={"attack": "cross-user-direct-memory-leak", "driver": "llm-auto-attacker"},
+        )
+    assert resp.status_code == 400
+    assert "auto_attack_capable" in resp.text or "auto-attacker" in resp.text.lower()
+
+
+def test_live_jobs_404_for_unknown_id():
+    with _client() as client:
+        resp = client.get("/api/live/jobs/not-a-real-job-id")
+    assert resp.status_code == 404
+
+
+def test_live_stats_starts_empty():
+    with _client() as client:
+        resp = client.get("/api/live/stats")
+    assert resp.status_code == 200
+    assert resp.json() == {}

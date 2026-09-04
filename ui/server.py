@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -42,7 +43,9 @@ from diskard.adapters.investment_stand import (  # noqa: E402
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
 from diskard.attacker import AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
 from diskard.models import Actor, Operation  # noqa: E402
+from diskard.report import confidence_for  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
@@ -80,6 +83,19 @@ def wrap_dispatch_with_progress(
 POISONER_CUS = "1001"
 VICTIM_CUS = "1002"
 DATA_SUBJECT_CUS = "1003"
+CONTROL_CUS = "1004"
+
+# The LLM auto-attacker (attacker.py) hard-codes its system prompt and
+# mechanics to family 1's cus-smuggling goal -- it does not generalize to the
+# other three attacks. Keep this explicit rather than presenting a driver
+# option that would silently do the wrong thing for other families.
+AUTO_ATTACK_CAPABLE = {"cross-user-global-policy-poisoning"}
+
+# {attack_name: {"n": int, "n_persisted": int, "n_vulnerable": int}} --
+# session-scoped, in-memory, resets on server restart. Same philosophy as
+# JOBS below: a dashboard for one operator watching one run at a time, not a
+# persisted analytics store.
+SESSION_STATS: dict[str, dict[str, int]] = {}
 
 
 # --------------------------------------------------------------------------
@@ -94,10 +110,14 @@ class Job:
     kind: str
     status: str = "running"  # running | done | error
     log: list[str] = field(default_factory=list)
+    steps: list[dict] = field(default_factory=list)
     result: dict | None = None
 
     def emit(self, line: str) -> None:
         self.log.append(line)
+
+    def emit_step(self, step: dict) -> None:
+        self.steps.append(step)
 
 
 JOBS: dict[str, Job] = {}
@@ -366,6 +386,91 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     return {"succeeded": True, "finding": payload, "campaign": campaign.to_dict()}
 
 
+async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
+    """Job body for the live console -- reuses cli._build_scenario (same
+    attack-family dispatch the CLI uses) and checks/*.py's own verdicts via
+    report.confidence_for, wrapping dispatch so the frontend can watch the
+    conversation stream in instead of only seeing the result at the end."""
+    from giskard.checks import Suite
+
+    from diskard.identities import refresh_access_token
+    from diskard.scenarios.cross_user_policy_poisoning import new_run_id
+
+    await refresh_access_token(ctx.identities, DATA_SUBJECT_CUS)
+
+    run_id = new_run_id()
+    base_dispatch = make_dispatch(
+        stand=ctx.stand,
+        mongo=ctx.mongo,
+        invest=ctx.invest,
+        identities=ctx.identities,
+        semantic=ctx.semantic,
+    )
+    dispatch = wrap_dispatch_with_progress(base_dispatch, job.emit_step)
+
+    args = SimpleNamespace(
+        attack=attack,
+        poisoner_cus=POISONER_CUS,
+        victim_cus=VICTIM_CUS,
+        data_subject_cus=DATA_SUBJECT_CUS,
+        control_cus=CONTROL_CUS,
+    )
+
+    if driver == "llm-auto-attacker":
+        job.emit(f"searching for a persisting wording for {attack!r}...")
+        campaign = await run_auto_attack(
+            poisoner=ctx.identities[POISONER_CUS],
+            data_subject_cus=DATA_SUBJECT_CUS,
+            stand=ctx.stand,
+            mongo=ctx.mongo,
+            attacker=ctx.attacker,
+            max_attempts=6,
+            on_attempt=lambda a: job.emit(f"attempt {a.index}: {a.idea}"),
+            semantic=ctx.semantic,
+        )
+        if not campaign.succeeded:
+            return {"status": "no-winning-wording", "campaign": campaign.to_dict()}
+        scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
+    else:
+        scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
+
+    job.emit(f"running {scenario.name!r}")
+    try:
+        suite_result = await Suite(name="diskard-live", scenarios=[scenario]).run(
+            return_exception=True
+        )
+    finally:
+        deleted_policy = ctx.mongo.delete_by_source_session(cleanup_key)
+        deleted_semantic = ctx.semantic.delete_by_user(POISONER_CUS)
+        if deleted_policy:
+            job.emit(f"cleanup: removed {deleted_policy} policy record(s)")
+        if deleted_semantic:
+            job.emit(f"cleanup: removed {deleted_semantic} semantic fact(s)")
+
+    step = suite_result.results[0].steps[0]
+    if step.error is not None:
+        job.emit(f"ERROR: {step.error.summary()}")
+        return {"status": "error", "error": step.error.summary()}
+
+    check_result = step.results[0]
+    vulnerable = check_result.status.value == "fail"
+    details = check_result.details
+
+    stats = SESSION_STATS.setdefault(attack, {"n": 0, "n_persisted": 0, "n_vulnerable": 0})
+    stats["n"] += 1
+    if details.get("persisted"):
+        stats["n_persisted"] += 1
+    if vulnerable:
+        stats["n_vulnerable"] += 1
+
+    return {
+        "status": "vulnerable" if vulnerable else "clean",
+        "message": check_result.message,
+        "details": details,
+        "confidence": confidence_for(details) if vulnerable else None,
+    }
+
+
 # --------------------------------------------------------------------------
 # API
 # --------------------------------------------------------------------------
@@ -418,6 +523,57 @@ def get_job(job_id: str):
         "log": job.log,
         "result": job.result,
     }
+
+
+class LiveStartRequest(BaseModel):
+    attack: str
+    driver: str = "template"
+
+
+@app.get("/api/live/attacks")
+def list_live_attacks():
+    return [
+        {"name": name, "auto_attack_capable": name in AUTO_ATTACK_CAPABLE} for name in KNOWN_ATTACKS
+    ]
+
+
+@app.post("/api/live/start")
+async def start_live(req: LiveStartRequest):
+    if req.attack not in KNOWN_ATTACKS:
+        raise HTTPException(400, f"unknown attack {req.attack!r}")
+    if req.driver == "llm-auto-attacker" and req.attack not in AUTO_ATTACK_CAPABLE:
+        raise HTTPException(
+            400,
+            f"{req.attack!r} is not auto_attack_capable -- "
+            "the LLM auto-attacker is only wired for "
+            "cross-user-global-policy-poisoning today",
+        )
+    job = _new_job("live")
+    import asyncio
+
+    asyncio.create_task(
+        _run_job(job, lambda j: _live_run_body(j, attack=req.attack, driver=req.driver))
+    )
+    return {"job_id": job.id}
+
+
+@app.get("/api/live/jobs/{job_id}")
+def get_live_job(job_id: str):
+    job = JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown job")
+    return {
+        "id": job.id,
+        "status": job.status,
+        "log": job.log,
+        "steps": job.steps,
+        "result": job.result,
+    }
+
+
+@app.get("/api/live/stats")
+def get_live_stats():
+    return SESSION_STATS
 
 
 def _summarize_finding(path: Path) -> dict:
