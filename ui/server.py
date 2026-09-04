@@ -14,7 +14,9 @@ import json
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -40,12 +42,40 @@ from diskard.adapters.investment_stand import (  # noqa: E402
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
 from diskard.attacker import AttackerLLM, run_auto_attack  # noqa: E402
-from diskard.models import Actor  # noqa: E402
+from diskard.models import Actor, Operation  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
     poison_session_id,
 )
+
+
+def wrap_dispatch_with_progress(
+    dispatch: Callable[[Operation, Any], Any],
+    on_step: Callable[[dict], None],
+):
+    """Wrap a dispatch coroutine so every completed Operation is reported to
+    `on_step` -- lets the live console's frontend poll and render the
+    conversation as it grows instead of waiting for the whole scenario to
+    finish. Does not touch the wrapped call's own return value or swallow
+    its exceptions."""
+
+    async def wrapped(inputs: Operation, trace: Any) -> dict:
+        outputs = await dispatch(inputs, trace)
+        on_step(
+            {
+                "label": inputs.label,
+                "phase": inputs.phase,
+                "actor_cus": inputs.actor_cus,
+                "message": inputs.message,
+                "reply": outputs.get("reply") if isinstance(outputs, dict) else None,
+                "ts": datetime.now(UTC).isoformat(),
+            }
+        )
+        return outputs
+
+    return wrapped
+
 
 POISONER_CUS = "1001"
 VICTIM_CUS = "1002"
