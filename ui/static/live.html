@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Diskard — живая атака</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
+    --muted: #8b949e; --accent: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text); margin: 0; padding: 24px;
+    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 20px; font-size: 12.5px; }
+  a.navlink { color: var(--accent); text-decoration: none; }
+  .controls {
+    display: flex; gap: 12px; align-items: end; margin-bottom: 16px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+  }
+  .controls label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  select {
+    background: #0d1117; border: 1px solid var(--border); color: var(--text);
+    border-radius: 5px; padding: 6px 8px; font-size: 13px;
+  }
+  button {
+    background: var(--accent); color: #0d1117; border: none;
+    border-radius: 6px; padding: 9px 16px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  button:disabled { background: #2a3138; color: var(--muted); cursor: not-allowed; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin: 0 0 10px; }
+  .status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; text-transform: uppercase; }
+  .status-running { background: #3d2f00; color: var(--warn); }
+  .status-done { background: #0f3d1a; color: var(--ok); }
+  .status-error { background: #3d0f0f; color: var(--bad); }
+  #transcript { height: 420px; overflow-y: auto; }
+  .step { border-bottom: 1px solid var(--border); padding: 8px 0; font-size: 12.5px; }
+  .step .who { color: var(--accent); font-weight: 600; }
+  .step .label { color: var(--muted); font-size: 11px; }
+  .step .msg { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+  .step .reply { margin: 4px 0 0 12px; padding-left: 8px; border-left: 2px solid var(--border);
+    white-space: pre-wrap; word-break: break-word; color: var(--text); }
+  .verdict { font-size: 20px; font-weight: 700; padding: 10px 0; }
+  .verdict.vulnerable { color: var(--bad); }
+  .verdict.clean { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; width: 40%; }
+  td.val { word-break: break-word; }
+  .bar-row { margin-bottom: 10px; }
+  .bar-label { font-size: 12px; color: var(--muted); margin-bottom: 3px;
+    display: flex; justify-content: space-between; }
+  .bar-track { background: #0d1117; border-radius: 5px; height: 10px; overflow: hidden; }
+  .bar-fill { background: var(--accent); height: 100%; }
+  .bar-fill.vuln { background: var(--bad); }
+</style>
+</head>
+<body>
+
+<h1>Diskard — живая атака <span style="font-size:13px"><a class="navlink" href="/">&larr; обычная консоль</a></span></h1>
+<div class="sub">Автоматический прогон одного из 4 сценариев с пошаговой трансляцией переписки и живым вердиктом оракула. <span id="cusLine">...</span></div>
+
+<div class="controls">
+  <div>
+    <label>Attack family</label>
+    <select id="attackSelect"></select>
+  </div>
+  <div>
+    <label>Driver</label>
+    <select id="driverSelect">
+      <option value="template">Fixed template</option>
+      <option value="llm-auto-attacker">LLM auto-attacker</option>
+    </select>
+  </div>
+  <button id="btnStart" onclick="startLive()">Start</button>
+  <span id="jobBadge"></span>
+</div>
+
+<div class="grid2">
+  <div class="panel">
+    <h2>Переписка</h2>
+    <div id="transcript">Ничего не запущено.</div>
+  </div>
+  <div class="panel">
+    <h2>Вердикт оракула</h2>
+    <div id="verdict"></div>
+    <table id="detailsTable"><tbody></tbody></table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Агрегат за сессию</h2>
+  <div id="stats"></div>
+</div>
+
+<script>
+let pollTimer = null;
+
+async function loadConfig() {
+  const r = await fetch('/api/config');
+  const c = await r.json();
+  document.getElementById('cusLine').innerHTML =
+    `poisoner=<code>${c.poisoner_cus}</code> victim=<code>${c.victim_cus}</code> data_subject=<code>${c.data_subject_cus}</code>`;
+}
+
+async function loadAttacks() {
+  const r = await fetch('/api/live/attacks');
+  const attacks = await r.json();
+  const sel = document.getElementById('attackSelect');
+  sel.innerHTML = attacks.map(a => `<option value="${a.name}" data-auto="${a.auto_attack_capable}">${a.name}</option>`).join('');
+  sel.onchange = updateDriverOptions;
+  updateDriverOptions();
+}
+
+function updateDriverOptions() {
+  const opt = document.getElementById('attackSelect').selectedOptions[0];
+  const autoCapable = opt && opt.dataset.auto === 'true';
+  const driverOpt = document.querySelector('#driverSelect option[value="llm-auto-attacker"]');
+  driverOpt.disabled = !autoCapable;
+  if (!autoCapable) document.getElementById('driverSelect').value = 'template';
+}
+
+function badge(status) {
+  const cls = status === 'running' ? 'status-running' : status === 'done' ? 'status-done' : 'status-error';
+  return `<span class="status-badge ${cls}">${status}</span>`;
+}
+
+async function startLive() {
+  const attack = document.getElementById('attackSelect').value;
+  const driver = document.getElementById('driverSelect').value;
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('transcript').textContent = 'запуск...';
+  document.getElementById('verdict').textContent = '';
+  document.querySelector('#detailsTable tbody').innerHTML = '';
+
+  const r = await fetch('/api/live/start', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({attack, driver}),
+  });
+  if (!r.ok) {
+    document.getElementById('transcript').textContent = 'Ошибка запуска: ' + await r.text();
+    document.getElementById('btnStart').disabled = false;
+    return;
+  }
+  const data = await r.json();
+  poll(data.job_id);
+}
+
+function poll(jobId) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const r = await fetch(`/api/live/jobs/${jobId}`);
+    const job = await r.json();
+    document.getElementById('jobBadge').innerHTML = badge(job.status);
+    renderTranscript(job.steps);
+    if (job.status !== 'running') {
+      clearInterval(pollTimer);
+      document.getElementById('btnStart').disabled = false;
+      renderVerdict(job.result);
+      loadStats();
+    }
+  }, 700);
+}
+
+function renderTranscript(steps) {
+  const el = document.getElementById('transcript');
+  if (!steps || !steps.length) { el.textContent = '(ожидание первого шага...)'; return; }
+  el.innerHTML = steps.map(s => `
+    <div class="step">
+      <span class="who">client${s.actor_cus}</span> <span class="label">${s.label} (${s.phase})</span>
+      ${s.message ? `<div class="msg">${escapeHtml(s.message)}</div>` : ''}
+      ${s.reply ? `<div class="reply">${escapeHtml(s.reply)}</div>` : ''}
+    </div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderVerdict(result) {
+  const v = document.getElementById('verdict');
+  const tbody = document.querySelector('#detailsTable tbody');
+  if (!result) { v.textContent = ''; tbody.innerHTML = ''; return; }
+  if (result.status === 'error') {
+    v.innerHTML = `<div class="verdict vulnerable">ОШИБКА ИНФРАСТРУКТУРЫ</div>`;
+    tbody.innerHTML = `<tr><td>error</td><td class="val">${escapeHtml(result.error)}</td></tr>`;
+    return;
+  }
+  if (result.status === 'no-winning-wording') {
+    v.innerHTML = `<div class="verdict">auto-attacker не нашёл персистящуюся формулировку</div>`;
+    return;
+  }
+  const vulnerable = result.status === 'vulnerable';
+  v.innerHTML = `<div class="verdict ${vulnerable ? 'vulnerable' : 'clean'}">
+    ${vulnerable ? 'VULNERABLE' : 'clean'}${result.confidence ? ' — confidence: ' + result.confidence : ''}
+  </div><div class="sub">${escapeHtml(result.message || '')}</div>`;
+  const details = result.details || {};
+  tbody.innerHTML = Object.entries(details).map(([k, val]) =>
+    `<tr><td>${k}</td><td class="val">${escapeHtml(typeof val === 'object' ? JSON.stringify(val) : String(val))}</td></tr>`
+  ).join('');
+}
+
+async function loadStats() {
+  const r = await fetch('/api/live/stats');
+  const stats = await r.json();
+  const el = document.getElementById('stats');
+  const names = Object.keys(stats);
+  if (!names.length) { el.innerHTML = '<div class="sub">Пока нет завершённых прогонов.</div>'; return; }
+  el.innerHTML = names.map(name => {
+    const s = stats[name];
+    const persistPct = s.n ? Math.round(100 * s.n_persisted / s.n) : 0;
+    const vulnPct = s.n ? Math.round(100 * s.n_vulnerable / s.n) : 0;
+    return `
+      <div class="bar-row">
+        <div class="bar-label"><span>${name} (n=${s.n})</span><span>persisted ${persistPct}%</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${persistPct}%"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label"><span>&nbsp;</span><span>vulnerable ${vulnPct}%</span></div>
+        <div class="bar-track"><div class="bar-fill vuln" style="width:${vulnPct}%"></div></div>
+      </div>`;
+  }).join('');
+}
+
+function escapeHtml(s) { const d = document.createElement('div'); d.innerText = s; return d.innerHTML; }
+
+loadConfig();
+loadAttacks();
+loadStats();
+</script>
+</body>
+</html>

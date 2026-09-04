@@ -613,3 +613,8 @@ def get_finding(name: str):
 @app.get("/")
 def index():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/live")
+def live_console():
+    return FileResponse(Path(__file__).parent / "static" / "live.html")
