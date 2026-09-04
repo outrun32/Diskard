@@ -5,75 +5,100 @@
 <title>Diskard console</title>
 <style>
   :root {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
-    --muted: #8b949e; --accent: #58a6ff; --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+    --bg: #0a0e14; --panel: #12181f; --panel-2: #0d1218; --border: #253141; --text: #d8dee9;
+    --muted: #7c8a9e; --accent: #5aa9ff; --accent-dim: #2b6cb0; --ok: #3fd97f; --bad: #ff5f6d;
+    --warn: #f0b429; --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+    --mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    --sans: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
-    background: var(--bg); color: var(--text); margin: 0; padding: 24px;
-    font-family: -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+    background:
+      radial-gradient(1200px 480px at 12% -10%, rgba(90,169,255,.06), transparent 60%),
+      var(--bg);
+    color: var(--text); margin: 0; padding: 28px 32px 48px;
+    font-family: var(--sans); font-size: 14px; line-height: 1.45;
   }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin-bottom: 20px; font-size: 12.5px; }
-  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+  .wrap { max-width: 1360px; margin: 0 auto; }
+  .kicker { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 6px; }
+  h1 { font-size: 21px; font-weight: 650; margin: 0 0 4px; letter-spacing: -.01em;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .header-row { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 20px; }
+  .sub { color: var(--muted); margin-bottom: 0; font-size: 12.5px; }
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
   .panel {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 16px; margin-bottom: 16px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow);
   }
-  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
-    color: var(--muted); margin: 0 0 10px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  .panel h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700;
+    color: var(--muted); margin: 0 0 12px; display: flex; align-items: center; gap: 7px; }
+  .panel h2::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-dim); flex: none; }
+  label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .03em;
+    text-transform: uppercase; color: var(--muted); margin: 12px 0 5px; }
   input[type=number] {
-    width: 100%; background: #0d1117; border: 1px solid var(--border); color: var(--text);
-    border-radius: 5px; padding: 6px 8px; font-size: 13px;
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 10px; font-size: 13px;
   }
+  input[type=number]:focus, button:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
   button {
-    width: 100%; margin-top: 12px; background: var(--accent); color: #0d1117; border: none;
-    border-radius: 6px; padding: 9px; font-weight: 600; font-size: 13px; cursor: pointer;
+    width: 100%; margin-top: 12px; background: var(--accent); color: #071019; border: none;
+    border-radius: 7px; padding: 10px; font-weight: 650; font-size: 13px; cursor: pointer;
+    transition: filter .12s ease, transform .12s ease;
   }
-  button:disabled { background: #2a3138; color: var(--muted); cursor: not-allowed; }
-  button.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { background: #232b36; color: var(--muted); cursor: not-allowed; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  button.secondary:hover:not(:disabled) { border-color: var(--accent-dim); filter: none; }
   .cus-row { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
-  .cus-row code { color: var(--text); }
+  .cus-row code { color: var(--text); background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 5px; font-family: var(--mono); }
   pre#log {
-    background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
     height: 340px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
-    font-family: Consolas, monospace; font-size: 12px; margin: 0;
+    font-family: var(--mono); font-size: 12px; margin: 0;
   }
-  a.navlink { color: var(--accent); text-decoration: none; }
-  .status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
-    font-weight: 600; text-transform: uppercase; }
-  .status-running { background: #3d2f00; color: var(--warn); }
-  .status-done { background: #0f3d1a; color: var(--ok); }
-  .status-error { background: #3d0f0f; color: var(--bad); }
+  a.navlink { color: var(--accent); text-decoration: none; font-weight: 500; }
+  a.navlink:hover { text-decoration: underline; }
+  .status-badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 10.5px;
+    font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .status-running { background: #3a2e05; color: var(--warn); }
+  .status-done { background: #0c3320; color: var(--ok); }
+  .status-error { background: #3a1013; color: var(--bad); }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 500; }
-  .tag-yes { color: var(--bad); font-weight: 600; }
-  .tag-no { color: var(--ok); }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .tag-yes { color: var(--bad); font-weight: 700; }
+  .tag-no { color: var(--ok); font-weight: 600; }
   .findings-list { max-height: 320px; overflow-y: auto; }
   .finding-row { cursor: pointer; }
-  .finding-row:hover { background: #1c2128; }
+  .finding-row:hover { background: var(--panel-2); }
   .metrics { display: flex; gap: 18px; margin: 10px 0 2px; }
   .metric { text-align: center; }
   .metric .n { font-size: 22px; font-weight: 700; }
   .metric .l { font-size: 11px; color: var(--muted); }
   #findingDetail {
-    background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px;
-    font-family: Consolas, monospace; font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
     max-height: 400px; overflow-y: auto; display: none;
   }
   #targetBadge {
-    display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 10px;
-    font-size: 11.5px; font-weight: 600; background: #1c2a1f; color: var(--ok);
-    border: 1px solid var(--ok); vertical-align: middle;
+    display: inline-block; padding: 3px 11px; border-radius: 20px;
+    font-size: 11px; font-weight: 650; background: rgba(63,217,127,.12); color: var(--ok);
+    border: 1px solid rgba(63,217,127,.4); vertical-align: middle;
   }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<h1>Diskard — консоль живой атаки <span style="font-size:13px"><a class="navlink" href="/live">живая атака &rarr;</a></span><span id="targetBadge" hidden></span></h1>
-<div class="sub">cross-user global-policy-poisoning против genai-invest-agent-memory-stand · <span id="cusLine">...</span></div>
+<div class="header-row">
+  <div class="kicker">Diskard · Console</div>
+  <h1>Консоль живой атаки <span id="targetBadge" hidden></span><span style="font-size:12.5px; font-weight:500; margin-left:auto"><a class="navlink" href="/live">живая атака &rarr;</a></span></h1>
+  <div class="sub">cross-user global-policy-poisoning против genai-invest-agent-memory-stand · <span id="cusLine">...</span></div>
+</div>
 
 <div class="grid">
   <div>
@@ -254,5 +279,7 @@ async function showFinding(name) {
 loadConfig();
 loadFindings();
 </script>
+
+</div>
 </body>
 </html>
