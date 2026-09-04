@@ -26,7 +26,7 @@ from diskard.adapters.investment_stand import (  # noqa: E402
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
-from diskard.attacker import AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
 from diskard.models import Actor  # noqa: E402
 from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
@@ -81,7 +81,8 @@ async def main() -> None:
     print(f"\nsearching for a persisting wording (budget: {max_attempts} attempts)...")
     campaign = await run_auto_attack(
         poisoner=identities[POISONER_CUS],
-        data_subject_cus=DATA_SUBJECT_CUS,
+        objective=ATTACK_OBJECTIVES["cross-user-global-policy-poisoning"],
+        params={"data_subject_cus": DATA_SUBJECT_CUS},
         stand=stand,
         mongo=mongo,
         attacker=attacker,

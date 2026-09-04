@@ -38,6 +38,8 @@ def test_live_attacks_lists_all_four_with_auto_attack_flag():
     }
     by_name = {a["name"]: a for a in body}
     assert by_name["cross-user-global-policy-poisoning"]["auto_attack_capable"] is True
+    assert by_name["compaction-policy-poisoning"]["auto_attack_capable"] is True
+    assert by_name["delayed-recommendation-manipulation"]["auto_attack_capable"] is True
     assert by_name["cross-user-direct-memory-leak"]["auto_attack_capable"] is False
 
 

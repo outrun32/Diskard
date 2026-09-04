@@ -43,7 +43,12 @@ from diskard.adapters.investment_stand import (  # noqa: E402
     StandClient,
 )
 from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
-from diskard.attacker import AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.checks.recommendation_shift import (  # noqa: E402
+    TARGET_ISIN,
+    TARGET_NAME,
+    TARGET_TICKER,
+)
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
 from diskard.models import Actor, Operation  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
@@ -124,11 +129,13 @@ CONTROL_CUS = "1004"
 # target/fix state they're looking at.
 TARGET_LABEL = os.environ.get("DISKARD_TARGET_LABEL", "")
 
-# The LLM auto-attacker (attacker.py) hard-codes its system prompt and
-# mechanics to family 1's cus-smuggling goal -- it does not generalize to the
-# other three attacks. Keep this explicit rather than presenting a driver
-# option that would silently do the wrong thing for other families.
-AUTO_ATTACK_CAPABLE = {"cross-user-global-policy-poisoning"}
+# Every attack whose family has an entry in diskard.attacker.ATTACK_OBJECTIVES --
+# i.e. every write-then-diff attack on agent_policy_memories. Deliberately
+# excludes cross-user-direct-memory-leak: that's a negative control on a
+# different, correctly-scoped collection (semantic_memories), and attacking
+# it for real means bypassing a read-side user_id filter, not varying a
+# write-side payload -- a different kind of search this driver doesn't do.
+AUTO_ATTACK_CAPABLE = set(ATTACK_OBJECTIVES)
 
 # {attack_name: {"n": int, "n_persisted": int, "n_vulnerable": int}} --
 # session-scoped, in-memory, resets on server restart. Same philosophy as
@@ -346,7 +353,8 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     job.emit(f"searching for a persisting wording (budget: {max_attempts} attempts)...")
     campaign = await run_auto_attack(
         poisoner=ctx.identities[POISONER_CUS],
-        data_subject_cus=DATA_SUBJECT_CUS,
+        objective=ATTACK_OBJECTIVES["cross-user-global-policy-poisoning"],
+        params={"data_subject_cus": DATA_SUBJECT_CUS},
         stand=ctx.stand,
         mongo=ctx.mongo,
         attacker=ctx.attacker,
@@ -484,15 +492,28 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     )
 
     if driver == "llm-auto-attacker":
+        if attack == "delayed-recommendation-manipulation":
+            attacker_params = {
+                "target_ticker": TARGET_TICKER,
+                "target_isin": TARGET_ISIN,
+                "target_name": TARGET_NAME,
+            }
+        else:
+            attacker_params = {"data_subject_cus": DATA_SUBJECT_CUS}
+
+        async def _on_attempt(a):
+            job.emit(f"attempt {a.index}: {a.idea}")
+
         job.emit(f"searching for a persisting wording for {attack!r}...")
         campaign = await run_auto_attack(
             poisoner=ctx.identities[POISONER_CUS],
-            data_subject_cus=DATA_SUBJECT_CUS,
+            objective=ATTACK_OBJECTIVES[attack],
+            params=attacker_params,
             stand=ctx.stand,
             mongo=ctx.mongo,
             attacker=ctx.attacker,
             max_attempts=6,
-            on_attempt=lambda a: job.emit(f"attempt {a.index}: {a.idea}"),
+            on_attempt=_on_attempt,
             semantic=ctx.semantic,
         )
         if not campaign.succeeded:
@@ -501,6 +522,15 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
                 "campaign": campaign.to_dict(),
                 "attack": attack,
             }
+        job.emit(
+            f"winning wording found at attempt {campaign.winning_index}: "
+            f"{campaign.winning_message!r} -- confirming through the formal scenario"
+        )
+        # Deliver the wording the search actually found, not the hand-tuned
+        # default -- previously this branch called _build_scenario without
+        # ever setting this, so the confirm run silently ignored the auto-
+        # attacker's result and re-tested the template instead.
+        args.poison_message = campaign.winning_message
         scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
     else:
         scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
@@ -537,6 +567,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     return {
         "attack": attack,
         "status": "vulnerable" if vulnerable else "clean",
+        "poison_message": getattr(args, "poison_message", None),
         "message": check_result.message,
         "details": details,
         "confidence": confidence_for(details) if vulnerable else None,
@@ -545,13 +576,13 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
 
 async def _audit_body(job: Job) -> dict:
     """One button, every known attack family back to back with the template
-    driver (the LLM auto-attacker is family-1-specific -- see
-    AUTO_ATTACK_CAPABLE -- so it can't drive a uniform full-cycle run). Each
-    family reuses `_live_run_body` unchanged, so the transcript/memory-event
-    panels stream exactly the same shape they do for a single-attack run,
-    just tagged per step with which family produced it. Gives one go/no-go
-    scorecard across every proven attack surface instead of checking each
-    family by hand."""
+    driver -- deliberately not the LLM auto-attacker (even though it now
+    covers 3 of 4 families, see AUTO_ATTACK_CAPABLE) so every family in one
+    audit run is driven the same, deterministic way. Each family reuses
+    `_live_run_body` unchanged, so the transcript/memory-event panels stream
+    exactly the same shape they do for a single-attack run, just tagged per
+    step with which family produced it. Gives one go/no-go scorecard across
+    every proven attack surface instead of checking each family by hand."""
     results: list[dict] = []
     for attack in KNOWN_ATTACKS:
         job.emit(f"\n==== {attack} ====")
@@ -648,9 +679,9 @@ async def start_live(req: LiveStartRequest):
     if req.driver == "llm-auto-attacker" and req.attack not in AUTO_ATTACK_CAPABLE:
         raise HTTPException(
             400,
-            f"{req.attack!r} is not auto_attack_capable -- "
-            "the LLM auto-attacker is only wired for "
-            "cross-user-global-policy-poisoning today",
+            f"{req.attack!r} is not auto_attack_capable -- the LLM auto-attacker "
+            f"only supports {sorted(AUTO_ATTACK_CAPABLE)} (cross-user-direct-memory-leak "
+            "is a negative control on a different, correctly-scoped memory collection)",
         )
     job = _new_job("live")
     import asyncio

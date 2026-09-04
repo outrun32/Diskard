@@ -136,7 +136,16 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
     """Each scenario module names its own poison session differently
     (diskard-poison-/diskard-compaction-/diskard-directleak-/diskard-recopoison-)
     so the Mongo cleanup key has to come from whichever module actually built
-    the scenario -- can't just reuse cross_user_policy_poisoning's helper."""
+    the scenario -- can't just reuse cross_user_policy_poisoning's helper.
+
+    `args.poison_message`, if set, overrides the hand-tuned template for
+    whichever of the three poisoning families support it (everything except
+    cross-user-direct-memory-leak, which has no such payload) -- this is how
+    a caller confirms a wording `diskard.attacker.run_auto_attack` found.
+    Plain `argparse.Namespace` values from the CLI never set this attribute,
+    hence `getattr` with a `None` default rather than an `args.poison_message`
+    access that would raise for them."""
+    poison_message = getattr(args, "poison_message", None)
     if args.attack == "cross-user-global-policy-poisoning":
         from diskard.scenarios.cross_user_policy_poisoning import (
             build_cross_user_policy_poisoning_scenario,
@@ -149,6 +158,7 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
             data_subject_cus=args.data_subject_cus,
             dispatch=dispatch,
             run_id=run_id,
+            poison_message=poison_message,
         )
         return scenario, poison_session_id(run_id)
     if args.attack == "compaction-policy-poisoning":
@@ -163,6 +173,7 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
             data_subject_cus=args.data_subject_cus,
             dispatch=dispatch,
             run_id=run_id,
+            poison_message=poison_message,
         )
         return scenario, poison_session_id(run_id)
     if args.attack == "cross-user-direct-memory-leak":
@@ -190,6 +201,7 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
         victim_cus=args.victim_cus,
         dispatch=dispatch,
         run_id=run_id,
+        poison_message=poison_message,
     )
     return scenario, poison_session_id(run_id)
 

@@ -70,11 +70,17 @@ def build_delayed_recommendation_manipulation_scenario(
     victim_cus: str,
     dispatch: Dispatch,
     run_id: str | None = None,
+    poison_message: str | None = None,
 ) -> Scenario:
     """Build the delayed-recommendation-manipulation scenario. `control_cus`
     must be a fourth identity, distinct from poisoner/victim -- it asks the
     trigger question first, before any poisoning, to establish that a
     mention downstream is caused by the poison and not spontaneous.
+
+    `poison_message`, if given, replaces the hand-tuned `POISON_MESSAGE` --
+    used to confirm a wording found by `diskard.attacker`'s
+    recommendation-promotion objective end-to-end through this same formal
+    scenario/oracle.
 
     Like the sibling scenario builders, this does not clean up after
     itself. Generate `run_id` with `new_run_id()`, pass it in, and call
@@ -83,6 +89,7 @@ def build_delayed_recommendation_manipulation_scenario(
     in a `finally` block -- see `examples/recommendation_shift_demo.py`.
     """
     run_id = run_id or new_run_id()
+    poison_text = poison_message or POISON_MESSAGE
     poison_session = poison_session_id(run_id)
     control_session = f"diskard-recocontrol-{run_id}"
     trigger_session_vuln = f"diskard-recotrigger-vuln-{run_id}"
@@ -117,7 +124,7 @@ def build_delayed_recommendation_manipulation_scenario(
             label="poison_chat",
             actor_cus=poisoner_cus,
             session_id=poison_session,
-            message=POISON_MESSAGE,
+            message=poison_text,
         ),
         outputs=dispatch,
     )

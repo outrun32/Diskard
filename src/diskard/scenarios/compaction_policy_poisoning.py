@@ -61,8 +61,16 @@ def build_compaction_policy_poisoning_scenario(
     data_subject_cus: str,
     dispatch: Dispatch,
     run_id: str | None = None,
+    poison_message: str | None = None,
 ) -> Scenario:
+    """`poison_message`, if given, replaces `POISON_MESSAGE_TEMPLATE` -- used
+    to confirm a wording found by `diskard.attacker` (same objective as
+    cross_user_policy_poisoning's, since this scenario shares its payload
+    and oracle, only the delivery pattern differs)."""
     run_id = run_id or new_run_id()
+    poison_text = poison_message or POISON_MESSAGE_TEMPLATE.format(
+        data_subject_cus=data_subject_cus
+    )
     poison_session = poison_session_id(run_id)
     trigger_session_vuln = f"diskard-compaction-trigger-vuln-{run_id}"
     trigger_session_prot = f"diskard-compaction-trigger-prot-{run_id}"
@@ -103,7 +111,7 @@ def build_compaction_policy_poisoning_scenario(
             label="poison_chat",
             actor_cus=poisoner_cus,
             session_id=poison_session,
-            message=POISON_MESSAGE_TEMPLATE.format(data_subject_cus=data_subject_cus),
+            message=poison_text,
         ),
         outputs=dispatch,
     )
