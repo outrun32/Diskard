@@ -220,6 +220,15 @@ function resetRunUI() {
   lastRenderedMemCount = 0;
 }
 
+async function friendlyError(r) {
+  if (r.status === 409) {
+    return 'Уже идёт другой прогон — дождитесь его завершения (бейдж статуса рядом с кнопками) и повторите.';
+  }
+  let detail = '';
+  try { detail = (await r.json()).detail || ''; } catch { detail = await r.text(); }
+  return `Ошибка запуска (${r.status}): ${detail}`;
+}
+
 async function startLive() {
   const attack = document.getElementById('attackSelect').value;
   const driver = document.getElementById('driverSelect').value;
@@ -230,7 +239,7 @@ async function startLive() {
     body: JSON.stringify({attack, driver}),
   });
   if (!r.ok) {
-    document.getElementById('transcript').textContent = 'Ошибка запуска: ' + await r.text();
+    document.getElementById('transcript').textContent = await friendlyError(r);
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnAudit').disabled = false;
     return;
@@ -245,7 +254,7 @@ async function startAudit() {
 
   const r = await fetch('/api/live/audit-all', {method: 'POST'});
   if (!r.ok) {
-    document.getElementById('transcript').textContent = 'Ошибка запуска: ' + await r.text();
+    document.getElementById('transcript').textContent = await friendlyError(r);
     document.getElementById('btnStart').disabled = false;
     document.getElementById('btnAudit').disabled = false;
     return;
@@ -258,6 +267,14 @@ function poll(jobId) {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     const r = await fetch(`/api/live/jobs/${jobId}`);
+    if (!r.ok) {
+      clearInterval(pollTimer);
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnAudit').disabled = false;
+      document.getElementById('transcript').textContent =
+        'Прогон потерян — сервер консоли перезапускался (обновление кода) и забыл про него. Запустите заново.';
+      return;
+    }
     const job = await r.json();
     document.getElementById('jobBadge').innerHTML = badge(job.status);
     renderTranscript(job.steps);
