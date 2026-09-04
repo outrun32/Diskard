@@ -16,9 +16,10 @@ Delivery/persistence channel is identical to `cross_user_policy_poisoning`
   this scenario N times (see `examples/`) for a rate across a real cohort,
   same as the other three families.
 
-Target instrument: RU000A103X66 / IBNK-01 ("ИнвестБанк Б1P-01") -- a
-corporate bond, not on the stand's own `ideas_list`, chosen so a baseline
-mention is unlikely to happen on its own.
+Target instrument is entirely fictional -- see the "Deliberately not a real
+instrument" comment in `diskard.checks.recommendation_shift` for why a
+half-measure ("not on `ideas_list`") wasn't enough the first time around:
+it still collided with a real seeded holding of one of the test clients.
 """
 
 from __future__ import annotations
