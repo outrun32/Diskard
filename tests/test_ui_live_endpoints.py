@@ -72,6 +72,22 @@ def test_live_stats_starts_empty():
     assert resp.json() == {}
 
 
+def test_live_job_detail_exposes_kind_for_audit_scorecard_routing():
+    # Inserted directly into the job store rather than started via
+    # /api/live/audit-all -- that route schedules a real background run
+    # against the stand, which this file deliberately never exercises (see
+    # module docstring). This only checks the response shape the frontend's
+    # poll() branches on to pick renderAuditScorecard vs renderVerdict.
+    from ui.server import JOBS, Job
+
+    job = Job(id="test-audit-kind", kind="audit", status="done", result={"n_total": 4})
+    JOBS[job.id] = job
+    with _client() as client:
+        resp = client.get(f"/api/live/jobs/{job.id}")
+    assert resp.status_code == 200
+    assert resp.json()["kind"] == "audit"
+
+
 def test_config_exposes_target_label_for_the_screencast_badge():
     with _client() as client:
         resp = client.get("/api/config")

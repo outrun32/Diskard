@@ -68,6 +68,8 @@
   .verdict { font-size: 20px; font-weight: 700; padding: 10px 0; }
   .verdict.vulnerable { color: var(--bad); }
   .verdict.clean { color: var(--ok); }
+  .step .fam { color: var(--muted); font-size: 10.5px; text-transform: none; }
+  button.secondary { background: #21262d; color: var(--text); border: 1px solid var(--border); }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 500; width: 40%; }
@@ -103,6 +105,7 @@
     </select>
   </div>
   <button id="btnStart" onclick="startLive()">Start</button>
+  <button id="btnAudit" class="secondary" onclick="startAudit()">Полный цикл (все семьи)</button>
   <span id="jobBadge"></span>
 </div>
 
@@ -166,16 +169,21 @@ function badge(status) {
   return `<span class="status-badge ${cls}">${status}</span>`;
 }
 
-async function startLive() {
-  const attack = document.getElementById('attackSelect').value;
-  const driver = document.getElementById('driverSelect').value;
+function resetRunUI() {
   document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnAudit').disabled = true;
   document.getElementById('transcript').textContent = 'запуск...';
   document.getElementById('memoryEvents').textContent = '(ожидание первой записи в память...)';
   document.getElementById('verdict').textContent = '';
   document.querySelector('#detailsTable tbody').innerHTML = '';
   lastRenderedStepCount = 0;
   lastRenderedMemCount = 0;
+}
+
+async function startLive() {
+  const attack = document.getElementById('attackSelect').value;
+  const driver = document.getElementById('driverSelect').value;
+  resetRunUI();
 
   const r = await fetch('/api/live/start', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -184,6 +192,22 @@ async function startLive() {
   if (!r.ok) {
     document.getElementById('transcript').textContent = 'Ошибка запуска: ' + await r.text();
     document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnAudit').disabled = false;
+    return;
+  }
+  const data = await r.json();
+  poll(data.job_id);
+}
+
+async function startAudit() {
+  resetRunUI();
+  document.getElementById('transcript').textContent = 'запуск полного цикла по всем семьям...';
+
+  const r = await fetch('/api/live/audit-all', {method: 'POST'});
+  if (!r.ok) {
+    document.getElementById('transcript').textContent = 'Ошибка запуска: ' + await r.text();
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnAudit').disabled = false;
     return;
   }
   const data = await r.json();
@@ -201,7 +225,12 @@ function poll(jobId) {
     if (job.status !== 'running') {
       clearInterval(pollTimer);
       document.getElementById('btnStart').disabled = false;
-      renderVerdict(job.result);
+      document.getElementById('btnAudit').disabled = false;
+      if (job.kind === 'audit') {
+        renderAuditScorecard(job.result);
+      } else {
+        renderVerdict(job.result);
+      }
       loadStats();
     }
   }, 700);
@@ -217,6 +246,7 @@ function renderTranscript(steps) {
   el.innerHTML = steps.map((s, i) => `
     <div class="step risk-${s.risk || 'info'} ${i >= lastRenderedStepCount ? 'flash-in' : ''}">
       <span class="who">client${s.actor_cus}</span> <span class="label">${s.label} (${s.phase}) ${riskIcon(s.risk)}</span>
+      ${s.attack ? `<span class="fam"> · ${s.attack}</span>` : ''}
       ${s.message ? `<div class="msg">${escapeHtml(s.message)}</div>` : ''}
       ${s.reply ? `<div class="reply">${escapeHtml(s.reply)}</div>` : ''}
     </div>`).join('');
@@ -274,6 +304,29 @@ function renderVerdict(result) {
   tbody.innerHTML = Object.entries(details).map(([k, val]) =>
     `<tr><td>${k}</td><td class="val">${escapeHtml(typeof val === 'object' ? JSON.stringify(val) : String(val))}</td></tr>`
   ).join('');
+}
+
+function renderAuditScorecard(result) {
+  const v = document.getElementById('verdict');
+  const tbody = document.querySelector('#detailsTable tbody');
+  if (!result) { v.textContent = ''; tbody.innerHTML = ''; return; }
+  const rows = result.attacks || [];
+  v.innerHTML = `<div class="verdict ${result.n_vulnerable ? 'vulnerable' : 'clean'}">
+    ${result.n_vulnerable}/${result.n_total} уязвимо, ${result.n_clean}/${result.n_total} чисто${result.n_error ? `, ${result.n_error} ошибок` : ''}
+  </div>`;
+  tbody.innerHTML = rows.map(r => {
+    let cell;
+    if (r.status === 'vulnerable') {
+      cell = `🔴 VULNERABLE${r.confidence ? ' (' + r.confidence + ')' : ''} — ${escapeHtml(r.message || '')}`;
+    } else if (r.status === 'error') {
+      cell = `⚠️ error: ${escapeHtml(r.error || '')}`;
+    } else if (r.status === 'no-winning-wording') {
+      cell = 'auto-attacker не нашёл формулировку';
+    } else {
+      cell = '✅ clean';
+    }
+    return `<tr><td>${r.attack}</td><td class="val">${cell}</td></tr>`;
+  }).join('');
 }
 
 async function loadStats() {

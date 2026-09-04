@@ -466,8 +466,11 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
             "semantic_count": len(semantic_records),
         }
 
+    def _on_step(step: dict) -> None:
+        job.emit_step({**step, "attack": attack})
+
     dispatch = wrap_dispatch_with_progress(
-        base_dispatch, job.emit_step, on_finalize=_check_memory_event
+        base_dispatch, _on_step, on_finalize=_check_memory_event
     )
 
     args = SimpleNamespace(
@@ -491,7 +494,11 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
             semantic=ctx.semantic,
         )
         if not campaign.succeeded:
-            return {"status": "no-winning-wording", "campaign": campaign.to_dict()}
+            return {
+                "status": "no-winning-wording",
+                "campaign": campaign.to_dict(),
+                "attack": attack,
+            }
         scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
     else:
         scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
@@ -512,7 +519,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     step = suite_result.results[0].steps[0]
     if step.error is not None:
         job.emit(f"ERROR: {step.error.summary()}")
-        return {"status": "error", "error": step.error.summary()}
+        return {"status": "error", "error": step.error.summary(), "attack": attack}
 
     check_result = step.results[0]
     vulnerable = check_result.status.value == "fail"
@@ -526,10 +533,42 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         stats["n_vulnerable"] += 1
 
     return {
+        "attack": attack,
         "status": "vulnerable" if vulnerable else "clean",
         "message": check_result.message,
         "details": details,
         "confidence": confidence_for(details) if vulnerable else None,
+    }
+
+
+async def _audit_body(job: Job) -> dict:
+    """One button, every known attack family back to back with the template
+    driver (the LLM auto-attacker is family-1-specific -- see
+    AUTO_ATTACK_CAPABLE -- so it can't drive a uniform full-cycle run). Each
+    family reuses `_live_run_body` unchanged, so the transcript/memory-event
+    panels stream exactly the same shape they do for a single-attack run,
+    just tagged per step with which family produced it. Gives one go/no-go
+    scorecard across every proven attack surface instead of checking each
+    family by hand."""
+    results: list[dict] = []
+    for attack in KNOWN_ATTACKS:
+        job.emit(f"\n==== {attack} ====")
+        outcome = await _live_run_body(job, attack=attack, driver="template")
+        results.append(outcome)
+
+    n_vulnerable = sum(1 for r in results if r.get("status") == "vulnerable")
+    n_clean = sum(1 for r in results if r.get("status") == "clean")
+    n_error = len(results) - n_vulnerable - n_clean
+    job.emit(
+        f"\naudit done: {n_vulnerable} vulnerable, {n_clean} clean, "
+        f"{n_error} errored out of {len(results)} families"
+    )
+    return {
+        "n_total": len(results),
+        "n_vulnerable": n_vulnerable,
+        "n_clean": n_clean,
+        "n_error": n_error,
+        "attacks": results,
     }
 
 
@@ -620,6 +659,15 @@ async def start_live(req: LiveStartRequest):
     return {"job_id": job.id}
 
 
+@app.post("/api/live/audit-all")
+async def start_audit():
+    job = _new_job("audit")
+    import asyncio
+
+    asyncio.create_task(_run_job(job, _audit_body))
+    return {"job_id": job.id}
+
+
 @app.get("/api/live/jobs/{job_id}")
 def get_live_job(job_id: str):
     job = JOBS.get(job_id)
@@ -627,6 +675,7 @@ def get_live_job(job_id: str):
         raise HTTPException(404, "unknown job")
     return {
         "id": job.id,
+        "kind": job.kind,
         "status": job.status,
         "log": job.log,
         "steps": job.steps,
