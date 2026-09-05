@@ -19,17 +19,32 @@ class ConnectorConfig(BaseModel):
     options: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class PluginConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    factory: str
+    options: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class ActorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    credential_env: str
+    credential_ref: str | None = None
+    credential_env: str | None = None
     tenant: str | None = None
     attributes: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_credential_reference(self) -> ActorConfig:
+        if bool(self.credential_ref) == bool(self.credential_env):
+            raise ValueError("set exactly one of credential_ref or credential_env")
+        return self
+
     def to_ref(self, actor_id: str) -> ActorRef:
+        credential_ref = self.credential_ref or f"env:{self.credential_env}"
         return ActorRef(
             id=actor_id,
-            credential_ref=f"env:{self.credential_env}",
+            credential_ref=credential_ref,
             tenant=self.tenant,
             attributes=self.attributes,
         )
@@ -61,6 +76,8 @@ class DiskardConfig(BaseModel):
 
     version: Literal[1]
     connector: ConnectorConfig
+    identity_provider: PluginConfig | None = None
+    isolation: PluginConfig | None = None
     actors: dict[str, ActorConfig] = Field(min_length=1)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)

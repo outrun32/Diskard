@@ -43,6 +43,7 @@ class ReplayManifest(BaseModel):
     same attack, actors, and target."""
 
     attack: str
+    config_path: str | None = None
     poisoner_cus: str
     victim_cus: str
     data_subject_cus: str

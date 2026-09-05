@@ -45,6 +45,9 @@ ui = [
     "python-dotenv>=1.2.3",
     "uvicorn[standard]>=0.52.4",
 ]
+investment-stand = [
+  "redis>=5,<8",
+]
 
 [project.scripts]
 diskard = "diskard.cli:main"

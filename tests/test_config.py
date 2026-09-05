@@ -17,7 +17,7 @@ def test_example_connector_config_parses_without_resolving_secrets():
     assert set(config.actor_refs()) == {"poisoner", "victim", "data_subject", "control"}
     serialized = config.model_dump_json()
     assert "sk-genai-" not in serialized
-    assert "DISKARD_POISONER_API_KEY" in serialized
+    assert "keycloak:client1001" in serialized
 
 
 def test_unknown_config_fields_are_rejected():

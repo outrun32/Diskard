@@ -64,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     scan = subparsers.add_parser("scan", help="Run one scenario against a live target.")
     scan.add_argument(
+        "config",
+        nargs="?",
+        help="Connector-driven YAML config. Omit it to use the legacy stand flags.",
+    )
+    scan.add_argument(
         "--attack",
         choices=list(KNOWN_ATTACKS),
         default="cross-user-global-policy-poisoning",
@@ -212,6 +217,9 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
 
 
 async def _run_scan(args: argparse.Namespace) -> int:
+    if getattr(args, "config", None):
+        return await _run_config_scan(args)
+
     from datetime import UTC, datetime
 
     from giskard.checks import Suite
@@ -249,6 +257,7 @@ async def _run_scan(args: argparse.Namespace) -> int:
     scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
     replay_manifest = ReplayManifest(
         attack=args.attack,
+        config_path=None,
         poisoner_cus=args.poisoner_cus,
         victim_cus=args.victim_cus,
         data_subject_cus=args.data_subject_cus,
@@ -284,6 +293,7 @@ async def _run_scan(args: argparse.Namespace) -> int:
         "scenario": scenario.name,
         "attack": args.attack,
         "target": args.stand_url,
+        "execution_mode": "legacy",
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
         "replay": replay_manifest.model_dump(),
@@ -324,6 +334,188 @@ async def _run_scan(args: argparse.Namespace) -> int:
     if finding is not None:
         print(f"finding confidence={finding.confidence} -- report: diskard report {run_id}")
 
+    if args.fail_on == "never":
+        return 0
+    return 1 if confirmed else 0
+
+
+async def _run_config_scan(args: argparse.Namespace) -> int:
+    """Run the existing attack catalog through a connector loaded from YAML.
+
+    Scenario definitions and checks stay identical to legacy mode during the
+    migration, which makes the two execution paths directly comparable.
+    """
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from giskard.checks import Suite
+
+    from diskard.config import load_config
+    from diskard.connectors import load_connector_factory, make_connector_dispatch
+    from diskard.models import ReplayManifest
+    from diskard.report import build_finding
+    from diskard.scenarios.cross_user_policy_poisoning import new_run_id
+
+    config_path = Path(args.config).resolve()
+    base_dir = config_path.parent
+    config = load_config(config_path)
+    if args.attack not in config.attacks.include:
+        print(f"attack {args.attack!r} is not enabled in {config_path}")
+        return 2
+    if config.identity_provider is None:
+        print("connector config has no identity_provider")
+        return 2
+    if config.execution.restore_after_scenario and config.isolation is None:
+        print("restore_after_scenario=true requires an isolation plugin")
+        return 2
+
+    connector_factory = load_connector_factory(
+        config.connector.factory,
+        base_dir=base_dir,
+    )
+    identity_factory = load_connector_factory(
+        config.identity_provider.factory,
+        base_dir=base_dir,
+    )
+    connector = connector_factory(config.connector.options)
+    identity_provider = identity_factory(config.identity_provider.options)
+    isolation = None
+    if config.isolation is not None:
+        isolation_factory = load_connector_factory(
+            config.isolation.factory,
+            base_dir=base_dir,
+        )
+        isolation = isolation_factory(config.isolation.options)
+
+    required_roles = {"poisoner", "victim", "data_subject", "control"}
+    missing_roles = required_roles - set(config.actors)
+    if missing_roles:
+        await connector.aclose()
+        print(f"connector config is missing actors: {sorted(missing_roles)}")
+        return 2
+
+    role_refs = config.actor_refs()
+
+    def actor_id(role: str) -> str:
+        ref = role_refs[role]
+        return ref.attributes.get("cus", ref.id)
+
+    actors = {
+        actor_id(role): ref.model_copy(update={"id": actor_id(role)})
+        for role, ref in role_refs.items()
+    }
+    dispatch = make_connector_dispatch(
+        connector=connector,
+        identity_provider=identity_provider,
+        actors=actors,
+    )
+
+    run_id = new_run_id()
+    scenario_args = SimpleNamespace(
+        attack=args.attack,
+        poisoner_cus=actor_id("poisoner"),
+        victim_cus=actor_id("victim"),
+        data_subject_cus=actor_id("data_subject"),
+        control_cus=actor_id("control"),
+    )
+    scenario, _cleanup_key = _build_scenario(scenario_args, dispatch, run_id)
+    checkpoint = await isolation.prepare(run_id) if isolation is not None else None
+
+    suite_result = None
+    execution_error: Exception | None = None
+    cleanup_error: Exception | None = None
+    started_at = datetime.now(UTC)
+    try:
+        await connector.healthcheck()
+        suite_result = await Suite(name="diskard-config-scan", scenarios=[scenario]).run(
+            return_exception=True
+        )
+    except Exception as exc:  # noqa: BLE001 -- converted into infrastructure status below
+        execution_error = exc
+    finally:
+        if isolation is not None and checkpoint is not None:
+            try:
+                await isolation.restore(checkpoint)
+                if not await isolation.verify(checkpoint):
+                    raise RuntimeError("post-scenario state differs from the checkpoint")
+            except Exception as exc:  # noqa: BLE001 -- cleanup failures invalidate the run
+                cleanup_error = exc
+        await connector.aclose()
+    completed_at = datetime.now(UTC)
+
+    replay_manifest = ReplayManifest(
+        attack=args.attack,
+        config_path=str(config_path),
+        poisoner_cus=scenario_args.poisoner_cus,
+        victim_cus=scenario_args.victim_cus,
+        data_subject_cus=scenario_args.data_subject_cus,
+        control_cus=scenario_args.control_cus,
+        stand_url=str(config.connector.options.get("base_url", config.connector.name)),
+        mongo_uri=str(config.connector.options.get("mongo_uri", "")),
+        invest_url=str(config.connector.options.get("invest_url", "")),
+        fail_on=args.fail_on,
+    )
+    run_dir = _run_id_dir(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    result_path = run_dir / "result.json"
+    envelope: dict = {
+        "run_id": run_id,
+        "scenario": scenario.name,
+        "attack": args.attack,
+        "target": config.connector.name,
+        "execution_mode": "connector",
+        "started_at": started_at.isoformat(),
+        "completed_at": completed_at.isoformat(),
+        "replay": replay_manifest.model_dump(),
+    }
+
+    if execution_error is not None or cleanup_error is not None or suite_result is None:
+        error = cleanup_error or execution_error or RuntimeError("scan produced no result")
+        envelope.update(
+            check_status="error",
+            message=str(error),
+            details={},
+            finding=None,
+        )
+        result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
+        print(f"INFRASTRUCTURE ERROR: {error}")
+        print(f"run recorded at {result_path}")
+        return 3
+
+    step = suite_result.results[0].steps[0]
+    if step.error is not None:
+        envelope.update(
+            check_status="error",
+            message=step.error.summary(),
+            details={},
+            finding=None,
+        )
+        result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
+        print(f"INFRASTRUCTURE ERROR: {step.error.summary()}")
+        print(f"run recorded at {result_path}")
+        return 3
+
+    check_result = step.results[0]
+    confirmed = check_result.status.value == "fail"
+    finding = None
+    if confirmed:
+        finding = build_finding(
+            run_id=run_id,
+            scenario=scenario.name,
+            attack=args.attack,
+            message=check_result.message or "",
+            details=check_result.details,
+            replay=replay_manifest,
+        )
+    envelope.update(
+        check_status=check_result.status.value,
+        message=check_result.message,
+        details=check_result.details,
+        finding=finding.model_dump() if finding else None,
+    )
+    result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
+    print(check_result.message)
+    print(f"run recorded at {result_path}")
     if args.fail_on == "never":
         return 0
     return 1 if confirmed else 0
@@ -434,7 +626,17 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
         return 2
 
     manifest = envelope["replay"]
+    if manifest.get("config_path"):
+        scan_args = argparse.Namespace(
+            config=manifest["config_path"],
+            attack=manifest["attack"],
+            fail_on=manifest["fail_on"],
+        )
+        print(f"replaying run {args.run_id} through connector config {manifest['config_path']!r}")
+        return await _run_scan(scan_args)
+
     scan_args = argparse.Namespace(
+        config=None,
         attack=manifest["attack"],
         poisoner_cus=manifest["poisoner_cus"],
         victim_cus=manifest["victim_cus"],

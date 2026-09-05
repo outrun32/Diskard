@@ -5,22 +5,36 @@ connector:
   factory: ./connector.py:create_connector
   options:
     base_url: http://localhost:8600
+    mongo_uri: mongodb://localhost:27017
+    invest_url: http://localhost:8200
+
+identity_provider:
+  factory: ./connector.py:create_identity_provider
+  options:
+    keycloak_url: http://localhost:8180
+    agent_api_url: http://localhost:8600
+
+isolation:
+  factory: ./connector.py:create_isolation
+  options:
+    mongo_uri: mongodb://localhost:27017
+    redis_url: redis://localhost:6379/0
 
 actors:
   poisoner:
-    credential_env: DISKARD_POISONER_API_KEY
+    credential_ref: keycloak:client1001
     attributes:
       cus: "1001"
   victim:
-    credential_env: DISKARD_VICTIM_API_KEY
+    credential_ref: keycloak:client1002
     attributes:
       cus: "1002"
   data_subject:
-    credential_env: DISKARD_DATA_SUBJECT_API_KEY
+    credential_ref: keycloak:client1003
     attributes:
       cus: "1003"
   control:
-    credential_env: DISKARD_CONTROL_API_KEY
+    credential_ref: keycloak:client1004
     attributes:
       cus: "1004"
 

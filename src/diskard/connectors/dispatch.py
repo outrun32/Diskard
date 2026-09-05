@@ -30,11 +30,19 @@ def make_connector_dispatch(
     connector: TargetConnector,
     identity_provider: IdentityProvider,
     actors: Mapping[str, ActorRef],
-) -> Callable[[ConnectorOperation, Any], Any]:
+) -> Callable[[Any, Any], Any]:
     """Create a Giskard-compatible target callable around a connector."""
 
-    async def dispatch(inputs: ConnectorOperation, trace: Any) -> dict[str, Any]:
+    async def dispatch(inputs: Any, trace: Any) -> dict[str, Any]:
         del trace
+
+        if not isinstance(inputs, ConnectorOperation):
+            normalizer = getattr(connector, "normalize_operation", None)
+            if normalizer is None:
+                raise ConnectorDispatchError(
+                    f"connector {connector.name!r} cannot normalize {type(inputs).__name__}"
+                )
+            inputs = normalizer(inputs)
 
         if inputs.phase not in connector.capabilities.operations:
             raise UnsupportedOperationError(
