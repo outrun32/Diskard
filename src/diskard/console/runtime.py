@@ -19,7 +19,6 @@ from diskard.console.contracts import (
     RunSpec,
     TargetProfile,
 )
-from diskard.console.redaction import redact
 from diskard.console.repository import (
     RunStore,
     make_engine,
@@ -434,38 +433,39 @@ class ConsoleRuntime:
         run_id = row["id"]
         cancellation = self.cancellations.setdefault(run_id, CancellationFlag())
         snapshot = row.get("config_snapshot") or {}
-        profile = TargetProfile.model_validate(snapshot["profile"])
-        attack = str(snapshot.get("attack") or row["scenario_version"])
-        driver = str(snapshot.get("driver") or "template")
-        options = snapshot.get("options") or {"budget": 1, "repeat": 1}
-        run_spec = RunSpec(
-            run_id=run_id,
-            profile=profile,
-            attack=attack,
-            driver=driver,
-            options=options,
-            resolved_manifest=(store.run(run_id, include_events=False) or {}).get("replay_spec")
-            or {
-                "schema_version": 1,
-                "driver": driver,
-                "scenario_version": attack,
-                "parameters": options,
-                "source_sha": row.get("source_sha", self.settings.build_sha),
-                "credential_refs": {},
-                "state_requirements": {"restore": "unsupported"},
-                "resolved_inputs": {},
-                "payload": {},
-            },
-        )
-
-        def sink(record: EventRecord) -> None:
-            if self.lease is not None:
-                self.lease.check()
-            store.append_event(run_id, record)
-            if record.type == "replay.resolved":
-                store.save_replay(run_id, record.data)
-
+        run_spec = None
         try:
+            profile = TargetProfile.model_validate(snapshot["profile"])
+            attack = str(snapshot.get("attack") or row["scenario_version"])
+            driver = str(snapshot.get("driver") or "template")
+            options = snapshot.get("options") or {"budget": 1, "repeat": 1}
+            run_spec = RunSpec(
+                run_id=run_id,
+                profile=profile,
+                attack=attack,
+                driver=driver,
+                options=options,
+                resolved_manifest=(store.run(run_id, include_events=False) or {}).get("replay_spec")
+                or {
+                    "schema_version": 1,
+                    "driver": driver,
+                    "scenario_version": attack,
+                    "parameters": options,
+                    "source_sha": row.get("source_sha", self.settings.build_sha),
+                    "credential_refs": {},
+                    "state_requirements": {"restore": "unsupported"},
+                    "resolved_inputs": {},
+                    "payload": {},
+                },
+            )
+
+            def sink(record: EventRecord) -> None:
+                if self.lease is not None:
+                    self.lease.check()
+                store.append_event(run_id, record)
+                if record.type == "replay.resolved":
+                    store.save_replay(run_id, record.data)
+
             store.append_event(
                 run_id, EventRecord(type="executor.claimed", data={"owner": "local"})
             )
@@ -484,7 +484,9 @@ class ConsoleRuntime:
                 finding=result.finding,
             )
         except Exception as exc:  # noqa: BLE001
-            error = str(redact(str(exc)))
+            # Detailed operation errors have already been redacted by the bridge.
+            # Unknown exceptions may contain unlabelled provider credentials.
+            error = f"Execution failed ({type(exc).__name__}); inspect persisted operation events"
             try:
                 store.append_event(
                     run_id, EventRecord(type="executor.error", data={"error": error})
@@ -494,7 +496,8 @@ class ConsoleRuntime:
                     status="cancelled" if cancellation.is_set() else "failed",
                     raw_engine_result={"error": error},
                     summary={"verdict": "unknown", "message": error},
-                    replay_spec=run_spec.resolved_manifest,
+                    replay_spec=(store.run(run_id, include_events=False) or {}).get("replay_spec")
+                    or {},
                     error=error,
                     isolation_status={"state": "unknown", "reason": "execution failure"},
                 )

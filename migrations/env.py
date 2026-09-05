@@ -15,7 +15,7 @@ config.set_main_option(
     os.getenv(
         "DISKARD_DATABASE_URL",
         "postgresql+psycopg://diskard:CHANGE_ME@postgres:5432/diskard",
-    ),
+    ).replace("%", "%%"),
 )
 target_metadata = metadata
 

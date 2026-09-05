@@ -15,7 +15,7 @@ export function mapRun(value: unknown): RunSummary {
   const r = record(value), config = record(r.config_snapshot ?? r.config), profile = record(config.profile), summary = record(r.summary);
   const id = textValue(r.id ?? r.run_id);
   if (!id) throw new Error("Ответ API не содержит ID запуска");
-  const status = ["queued","running","cancelling","completed","failed","cancelled","interrupted"].includes(String(r.status)) ? r.status as ExecutionStatus : "unknown";
+  const status = ["queued","running","cancelling","completed","failed","cancelled","interrupted","imported"].includes(String(r.status)) ? r.status as ExecutionStatus : "unknown";
   const started = textValue(r.started_at ?? r.submitted_at ?? r.created_at), finished = textValue(r.finished_at ?? r.completed_at);
   const elapsed = started && finished ? Date.parse(finished) - Date.parse(started) : NaN;
   return {
@@ -27,12 +27,12 @@ export function mapRun(value: unknown): RunSummary {
     driver: textValue(config.driver ?? r.driver) ?? "Не указан",
     status, outcome: outcome(summary.verdict ?? r.outcome ?? r.engine_verdict),
     mode: activeStatus(status) ? "live" : "recorded",
-    origin: String(r.origin).startsWith("console") ? "ui" : ["ui","cli","imported","demo"].includes(String(r.origin)) ? r.origin as RunSummary["origin"] : undefined,
+    origin: (r.mode === "legacy-import" || r.origin === "cli-import") ? "imported" : String(r.origin).startsWith("console") ? "ui" : ["ui","cli","imported","demo"].includes(String(r.origin)) ? r.origin as RunSummary["origin"] : undefined,
     startedAt: started, finishedAt: finished,
     durationMs: typeof r.duration_ms === "number" ? r.duration_ms : Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined,
     lastEventSequence: typeof r.last_event_sequence === "number" ? r.last_event_sequence : undefined,
     eventCount: typeof r.event_count === "number" ? r.event_count : undefined,
-    parentRunId: textValue(r.parent_run_id), imported: r.origin === "imported",
+    parentRunId: textValue(r.parent_run_id), imported: r.origin === "imported" || r.origin === "cli-import" || r.mode === "legacy-import",
     demo: r.demo === true || summary.synthetic === true,
   };
 }
@@ -41,7 +41,14 @@ export function mapEvent(value: unknown): TraceEvent {
   const seq = Number(r.sequence);
   if (!Number.isSafeInteger(seq) || seq < 1) throw new Error("Событие без допустимого sequence");
   const type = String(r.type ?? "unknown");
-  const memory = record(r.memory ?? d.memory ?? d.memory_event ?? output.memory ?? output.memory_event);
+  let memory = record(r.memory ?? d.memory ?? d.memory_event ?? output.memory ?? output.memory_event);
+  // These are the actual runner outputs, not inferred memory changes.
+  if (!Object.keys(memory).length && d.phase === "snapshot_policy" && "policy" in output) {
+    memory = {tier: "policy", change: "snapshot", after: output.policy};
+  }
+  if (!Object.keys(memory).length && d.phase === "semantic_snapshot" && "facts" in output) {
+    memory = {tier: "semantic", change: "snapshot", owner: r.actor_id, after: output.facts};
+  }
   const kind: TraceEvent["kind"] = type.includes("error") ? "error" : Object.keys(memory).length ? "memory" : type.includes("evidence") || type === "run.result" ? "evidence" : type.includes("operation") || type.startsWith("run.") ? "operation" : "message";
   const status = type.endsWith(".started") ? "started" : type.endsWith(".completed") ? "completed" : type.endsWith(".error") ? "failed" : undefined;
   const rawChange = String(memory.change ?? memory.action ?? "snapshot");
@@ -88,10 +95,10 @@ export function mapDetail(value: unknown): RunDetail {
     },
     replay: {
       recorded: replay.recorded !== false,
-      rerun: !!r.target_profile_id && !!c.attack && !run.imported,
+      rerun: !!r.target_profile_id && !!c.attack && !run.imported && !activeStatus(run.status),
       completeness: replay.complete === true ? "complete" : "partial",
-      label: "Повторить конфигурацию",
-      reason: "Новый эксперимент использует текущую версию профиля и движка. Ответы и состояние цели могут отличаться. " + (Array.isArray(replay.unsupported_reasons) ? replay.unsupported_reasons.join(" ") : ""),
+      label: replay.complete === true ? "Повторить сохранённые входы" : "Повторить конфигурацию",
+      reason: "Повтор использует сохранённую версию профиля и новые сессии. При полном replay требуются исходная сборка и сохранённые входы. Ответы модели и состояние цели не воспроизводятся гарантированно. " + (Array.isArray(replay.unsupported_reasons) ? replay.unsupported_reasons.join(" ") : ""),
     },
     cleanup: ["verified","failed","unknown","unsupported"].includes(String(r.cleanup)) ? r.cleanup as RunDetail["cleanup"] : undefined,
     resultSummary: textValue(summary.message ?? r.result_summary), error: jsonText(r.error),

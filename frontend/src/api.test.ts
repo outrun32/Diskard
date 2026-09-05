@@ -3,6 +3,14 @@ import { mapRun,mapDetail,mapEvent,drainEvents,rerunRun,createRun,listRunsPage }
 import { run,event,memoryEvent } from "./contract-fixtures";
 afterEach(()=>vi.unstubAllGlobals());
 describe("persisted backend contract",()=>{
+ it("maps real policy and semantic collector outputs as snapshots, never invented diffs",()=>{
+  const policy=mapEvent({sequence:1,type:"operation.completed",data:{phase:"snapshot_policy",output:{policy:[]}}});
+  expect(policy.kind).toBe("memory");expect(policy.memory).toMatchObject({tier:"policy",change:"snapshot",after:"[]"});
+  const semantic=mapEvent({sequence:2,type:"operation.completed",actor_id:"1001",data:{phase:"semantic_snapshot",output:{facts:[{text:"saved fact"}]}}});
+  expect(semantic.memory).toMatchObject({tier:"semantic",owner:"1001",change:"snapshot"});
+  expect(semantic.memory?.before).toBeUndefined();
+  expect(mapDetail({...run,status:"running"}).replay.rerun).toBe(false);
+ });
  it("maps actual run envelope without conflating execution and security",()=>{
  const r=mapDetail(run);expect(r.target).toBe("Test target");expect(r.family).toBe("policy-test");expect(r.outcome).toBe("clean");expect(r.status).toBe("completed");expect(r.config.budget).toBe(6);expect(r.targetVersion).toBe("3");expect(r.resultSummary).toBe("Original engine message");expect(r.replay.rerun).toBe(true);
  expect(mapRun({...run,status:"future-status",summary:{}})).toMatchObject({status:"unknown",outcome:"unknown"});

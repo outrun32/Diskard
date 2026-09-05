@@ -15,6 +15,9 @@ services:
 
   diskard:
     build: .
+    env_file:
+      - path: .env
+        required: false
     environment:
       DISKARD_HOST: ${DISKARD_HOST:-0.0.0.0}
       DISKARD_PORT: 8700
@@ -26,7 +29,7 @@ services:
       DISKARD_PROFILE_FILE: /config/targets.yaml
       DISKARD_EVENT_MAX_BYTES: ${DISKARD_EVENT_MAX_BYTES:-262144}
       DISKARD_EXPORT_MAX_BYTES: ${DISKARD_EXPORT_MAX_BYTES:-52428800}
-      DISKARD_ALLOWED_ORIGINS: ${DISKARD_ALLOWED_ORIGINS:-http://localhost:8700,http://127.0.0.1:8700}
+      DISKARD_ALLOWED_ORIGINS: ${DISKARD_ALLOWED_ORIGINS:-http://localhost:${DISKARD_PUBLISHED_PORT:-8700},http://127.0.0.1:${DISKARD_PUBLISHED_PORT:-8700}}
       DISKARD_ALLOWED_HOSTS: ${DISKARD_ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
       GISKARD_TELEMETRY_DISABLED: ${GISKARD_TELEMETRY_DISABLED:-true}
       GISKARD_QUIET: ${GISKARD_QUIET:-true}

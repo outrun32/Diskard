@@ -6,6 +6,7 @@ export type ExecutionStatus =
   | "failed"
   | "cancelled"
   | "interrupted"
+  | "imported"
   | "unknown";
 
 export type SecurityOutcome = "vulnerable" | "clean" | "unknown" | "error" | "not_applicable";

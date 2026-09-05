@@ -15,3 +15,5 @@ config/secrets/
 .ruff_cache/
 work/
 outputs/
+frontend/node_modules/
+frontend/dist/

@@ -245,6 +245,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Diskard console", lifespan=lifespan)
 
 
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_request_validation(request: Request, exc: RequestValidationError):
+    # Pydantic's default response echoes invalid input, including secret values.
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Invalid request fields; check field types and required values"},
+    )
+
+
 @app.middleware("http")
 async def local_console_boundary(request: Request, call_next):
     runtime = getattr(ctx, "console", None)
@@ -836,13 +848,20 @@ def get_finding(name: str):
     return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
-@app.get("/")
+FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
+    if (FRONTEND_DIST / "index.html").is_file():
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
     return FileResponse(Path(__file__).parent / "static" / "console.html")
 
 
 @app.get("/live")
 def live_console():
+    if (FRONTEND_DIST / "index.html").is_file():
+        return index()
     return FileResponse(Path(__file__).parent / "static" / "live.html")
 
 
@@ -946,7 +965,9 @@ def create_target(request: Request, payload: TargetProfileRequest):
         profile = TargetProfile.model_validate(payload.model_dump())
         row = runtime.require_store().upsert_profile(profile)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(
+            400, "Invalid target profile; check URL, roles and credential references"
+        ) from exc
     if row.get("config_difference"):
         raise HTTPException(
             409,
@@ -977,7 +998,9 @@ def update_target(request: Request, target_id: str, payload: TargetProfileReques
             TargetProfile.model_validate(payload.model_dump()), explicit=True
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(
+            400, "Invalid target profile; check URL, roles and credential references"
+        ) from exc
     return runtime.public_profile(row)
 
 
@@ -1135,3 +1158,29 @@ def compare_durable_runs(left_id: str, right_id: str):
     if result is None:
         raise HTTPException(404, "one or both runs are unknown")
     return result
+
+
+# Keep SPA routing explicit: API typos and missing assets must remain 404s.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+app.mount(
+    "/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets"), check_dir=False), name="assets"
+)
+
+
+@app.api_route("/runs", methods=["GET", "HEAD"])
+@app.api_route("/runs/new", methods=["GET", "HEAD"])
+@app.api_route("/runs/{run_id}/{view}", methods=["GET", "HEAD"])
+@app.api_route("/targets", methods=["GET", "HEAD"])
+@app.api_route("/targets/new", methods=["GET", "HEAD"])
+@app.api_route("/targets/{target_id}/edit", methods=["GET", "HEAD"])
+@app.api_route("/reports", methods=["GET", "HEAD"])
+@app.api_route("/reports/{report_id}", methods=["GET", "HEAD"])
+@app.api_route("/compare", methods=["GET", "HEAD"])
+@app.api_route("/settings", methods=["GET", "HEAD"])
+def console_page(view: str | None = None):
+    if view is not None and view not in {"trace", "results", "config"}:
+        raise HTTPException(404, "unknown console view")
+    if not (FRONTEND_DIST / "index.html").is_file():
+        raise HTTPException(503, "Build frontend first: cd frontend && pnpm install && pnpm build")
+    return index()
