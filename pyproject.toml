@@ -22,7 +22,6 @@ classifiers = [
 ]
 dependencies = [
   "giskard-checks==1.0.3",
-  "giskard-scan==1.0.0",
   "httpx>=0.28,<1",
   "pyyaml>=6.0.2,<7",
 ]
@@ -35,8 +34,11 @@ dev = [
   "pytest-asyncio>=1.2,<2",
   "ruff>=0.13,<1",
 ]
-openai = [
+llm = [
   "giskard-agents[openai]>=1.0.2,<2",
+]
+baseline = [
+  "giskard-scan==1.0.0",
 ]
 ui = [
     "fastapi>=0.141.1",

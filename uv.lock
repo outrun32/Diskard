@@ -215,12 +215,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "giskard-checks" },
-    { name = "giskard-scan" },
     { name = "httpx" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
+baseline = [
+    { name = "giskard-scan" },
+]
 dev = [
     { name = "fastapi" },
     { name = "pytest" },
@@ -232,7 +234,7 @@ investment-stand = [
     { name = "pymongo" },
     { name = "redis" },
 ]
-openai = [
+llm = [
     { name = "giskard-agents", extra = ["openai"] },
 ]
 ui = [
@@ -245,9 +247,9 @@ ui = [
 requires-dist = [
     { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.141.1" },
     { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.141.1" },
-    { name = "giskard-agents", extras = ["openai"], marker = "extra == 'openai'", specifier = ">=1.0.2,<2" },
+    { name = "giskard-agents", extras = ["openai"], marker = "extra == 'llm'", specifier = ">=1.0.2,<2" },
     { name = "giskard-checks", specifier = "==1.0.3" },
-    { name = "giskard-scan", specifier = "==1.0.0" },
+    { name = "giskard-scan", marker = "extra == 'baseline'", specifier = "==1.0.0" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pymongo", marker = "extra == 'investment-stand'", specifier = ">=4.17.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4,<10" },
@@ -259,7 +261,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.13,<1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'ui'", specifier = ">=0.52.4" },
 ]
-provides-extras = ["dev", "openai", "ui", "investment-stand"]
+provides-extras = ["dev", "llm", "baseline", "ui", "investment-stand"]
 
 [[package]]
 name = "distro"

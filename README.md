@@ -84,12 +84,6 @@ Install the optional local console dependencies with:
 uv sync --extra dev --extra ui --extra investment-stand
 ```
 
-Install the Giskard-backed model driver with:
-
-```bash
-uv sync --extra openai
-```
-
 ## CLI
 
 Check that the target and test identities are reachable:
@@ -139,7 +133,7 @@ Run stateful scenarios sequentially unless the target provides a tested isolatio
 Install the provider integration before using this driver:
 
 ```bash
-uv sync --extra openai
+uv sync --extra llm
 ```
 
 Select the provider and environment-variable names in `diskard.yaml`, then run:
@@ -168,7 +162,7 @@ Diskard control plane
 ## Development
 
 ```bash
-uv sync --extra dev --extra ui
+uv sync --extra dev --extra ui --extra llm --extra investment-stand
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
