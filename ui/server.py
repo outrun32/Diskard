@@ -38,6 +38,11 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.checks.evidence import (  # noqa: E402
+    operation_actor_id,
+    operation_label,
+    operation_message,
+)
 from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_ISIN,
     TARGET_NAME,
@@ -61,7 +66,7 @@ from examples.connectors.investment_stand.identity import KeycloakBootstrap  # n
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
 
 
-def _classify_risk(op: Operation) -> str:
+def _classify_risk(op: Any) -> str:
     """Cheap, synchronous danger label for one Operation -- no extra I/O, so
     it costs nothing to compute for every step. `finalize` is checked first
     because a poison payload's own finalize op (`poison_finalize`) also
@@ -70,17 +75,18 @@ def _classify_risk(op: Operation) -> str:
     fact that this particular finalize follows a poison chat turn."""
     if op.phase == "finalize":
         return "commit"
-    if op.phase == "chat" and ("poison" in op.label or "deliver_secret" in op.label):
+    label = operation_label(op) or ""
+    if op.phase == "chat" and ("poison" in label or "deliver_secret" in label):
         return "inject"
-    if op.phase == "chat" and "trigger" in op.label:
+    if op.phase == "chat" and "trigger" in label:
         return "trigger"
     return "info"
 
 
 def wrap_dispatch_with_progress(
-    dispatch: Callable[[Operation, Any], Any],
+    dispatch: Callable[[Any, Any], Any],
     on_step: Callable[[dict], None],
-    on_finalize: Callable[[Operation], Awaitable[dict | None]] | None = None,
+    on_finalize: Callable[[Any], Awaitable[dict | None]] | None = None,
 ):
     """Wrap a dispatch coroutine so every completed Operation is reported to
     `on_step` -- lets the live console's frontend poll and render the
@@ -95,17 +101,17 @@ def wrap_dispatch_with_progress(
     "memory just got written" signal well before the whole scenario (and its
     end-of-run oracle verdict) finishes."""
 
-    async def wrapped(inputs: Operation, trace: Any) -> dict:
+    async def wrapped(inputs: Any, trace: Any) -> dict:
         outputs = await dispatch(inputs, trace)
         memory_event = None
         if on_finalize is not None and inputs.phase == "finalize":
             memory_event = await on_finalize(inputs)
         on_step(
             {
-                "label": inputs.label,
+                "label": operation_label(inputs),
                 "phase": inputs.phase,
-                "actor_cus": inputs.actor_cus,
-                "message": inputs.message,
+                "actor_cus": operation_actor_id(inputs),
+                "message": operation_message(inputs),
                 "reply": outputs.get("reply") if isinstance(outputs, dict) else None,
                 "risk": _classify_risk(inputs),
                 "memory_event": memory_event,

@@ -20,8 +20,7 @@ from typing import Any
 
 from giskard.checks import CheckResult, Metric
 
-from diskard.checks.evidence import new_records_by_key
-from diskard.models import Operation
+from diskard.checks.evidence import new_records_by_key, operation_label
 
 # Deliberately not a real instrument on the stand at all -- RU000A103X66/
 # IBNK-01 (the original choice) was checked against `ideas_list` but not
@@ -39,7 +38,7 @@ TARGET_NAME = "Северная Финанс Б1P-01"
 def _by_label(trace: Any, label: str):
     for ix in trace.interactions:
         inputs = ix.inputs
-        if isinstance(inputs, Operation) and inputs.label == label:
+        if operation_label(inputs) == label:
             return ix
     return None
 

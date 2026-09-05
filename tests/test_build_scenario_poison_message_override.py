@@ -17,6 +17,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from diskard.checks.evidence import operation_label, operation_message  # noqa: E402
 from diskard.cli import _build_scenario  # noqa: E402
 
 
@@ -27,8 +28,8 @@ async def _fake_dispatch(inputs, trace):
 def _poison_chat_message(scenario) -> str | None:
     for step in scenario.steps:
         for interaction in step.interacts:
-            if getattr(interaction.inputs, "label", None) == "poison_chat":
-                return interaction.inputs.message
+            if operation_label(interaction.inputs) == "poison_chat":
+                return operation_message(interaction.inputs)
     return None
 
 

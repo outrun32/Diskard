@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from diskard.models import Actor, Operation
+from diskard.checks.evidence import operation_actor_id, operation_message
+from diskard.models import Actor
 from examples.connectors.investment_stand.backend import (
     InvestServerEvidence,
     MongoEvidence,
@@ -21,8 +22,11 @@ def make_dispatch(
     identities: dict[str, Actor],
     semantic: SemanticMemoryEvidence | None = None,
 ):
-    async def dispatch(inputs: Operation, trace: Any) -> dict:
-        actor = identities[inputs.actor_cus]
+    async def dispatch(inputs: Any, trace: Any) -> dict:
+        actor_id = operation_actor_id(inputs)
+        if actor_id is None:
+            raise ValueError("operation has no actor id")
+        actor = identities[actor_id]
 
         if inputs.phase == "snapshot_policy":
             return {"policy": mongo.snapshot()}
@@ -33,7 +37,7 @@ def make_dispatch(
                     "semantic_snapshot requires make_dispatch(..., "
                     "semantic=SemanticMemoryEvidence())"
                 )
-            return {"facts": semantic.find_by_user(inputs.actor_cus)}
+            return {"facts": semantic.find_by_user(actor_id)}
 
         if inputs.phase == "canary_fetch":
             if not actor.access_token:
@@ -45,11 +49,12 @@ def make_dispatch(
             return {"client": client}
 
         if inputs.phase == "chat":
-            if not inputs.session_id or inputs.message is None:
+            message = operation_message(inputs)
+            if not inputs.session_id or message is None:
                 raise ValueError("chat operation requires session_id and message")
-            return await stand.chat(
-                actor.api_key, inputs.session_id, inputs.message, inputs.auth_mode
-            )
+            payload = getattr(inputs, "payload", {})
+            auth_mode = payload.get("auth_mode", getattr(inputs, "auth_mode", "vulnerable"))
+            return await stand.chat(actor.api_key, inputs.session_id, message, auth_mode)
 
         if inputs.phase == "finalize":
             if not inputs.session_id:
