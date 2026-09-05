@@ -100,8 +100,9 @@ def test_legacy_import_is_deduplicated_and_marks_missing_trace(tmp_path: Path, s
     run_id = store.import_legacy(source)
     assert store.import_legacy(source) == run_id
     saved = store.run(run_id)
-    assert saved["status"] == "completed"
-    assert saved["summary"]["missing_fields"] == ["trace", "replay_inputs"]
+    assert saved["status"] == "imported"
+    assert saved["finished_at"] is None
+    assert saved["summary"]["missing_fields"] == ["trace", "replay_inputs", "execution_timestamps"]
     assert saved["events"][0]["type"] == "legacy_import"
 
 

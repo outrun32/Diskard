@@ -169,6 +169,7 @@ _local_locks: dict[str, threading.Lock] = {}
 
 
 def make_engine(database_url: str) -> Engine:
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     kwargs: dict[str, Any] = {"future": True, "pool_pre_ping": True}
     if database_url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
@@ -176,54 +177,23 @@ def make_engine(database_url: str) -> Engine:
 
 
 def migrate(engine: Engine) -> None:
-    """Apply the versioned schema before the API accepts work."""
+    """Run the same Alembic revisions at startup and from the migration CLI."""
+    from alembic import command
+    from alembic.config import Config
+
+    config = Config()
+    config.set_main_option(
+        "script_location", str(Path(__file__).resolve().parents[3] / "migrations")
+    )
     with engine.begin() as connection:
-        metadata.create_all(connection)
-        current = connection.execute(select(func.max(schema_versions.c.version))).scalar_one()
-        if current is None:
-            connection.execute(
-                insert(schema_versions).values(version=SCHEMA_VERSION, applied_at=_now())
-            )
-        elif current in {1, 2}:
-            if current == 1:
-                runs_columns = {
-                    column["name"] for column in inspect(connection).get_columns("runs")
-                }
-                if "source_sha" not in runs_columns:
-                    connection.execute(
-                        text(
-                            "ALTER TABLE runs ADD COLUMN source_sha VARCHAR(160) "
-                            "NOT NULL DEFAULT 'unknown'"
-                        )
-                    )
-                replay_columns = {
-                    column["name"] for column in inspect(connection).get_columns("replay_specs")
-                }
-                if "source_sha" not in replay_columns:
-                    connection.execute(
-                        text(
-                            "ALTER TABLE replay_specs ADD COLUMN source_sha VARCHAR(160) "
-                            "NOT NULL DEFAULT 'unknown'"
-                        )
-                    )
-            if connection.dialect.name == "postgresql":
-                constraints = {
-                    item["name"] for item in inspect(connection).get_unique_constraints("events")
-                }
-                if "uq_events_run_sequence" not in constraints:
-                    connection.execute(
-                        text(
-                            "ALTER TABLE events ADD CONSTRAINT uq_events_run_sequence "
-                            "UNIQUE (run_id, sequence)"
-                        )
-                    )
-            connection.execute(
-                insert(schema_versions).values(version=SCHEMA_VERSION, applied_at=_now())
-            )
-        elif current != SCHEMA_VERSION:
-            raise RuntimeError(
-                f"unsupported console schema version {current}; expected {SCHEMA_VERSION}"
-            )
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(8941234)"))
+        if "console_schema_versions" in inspect(connection).get_table_names():
+            current = connection.execute(select(func.max(schema_versions.c.version))).scalar_one()
+            if current is not None and current > SCHEMA_VERSION:
+                raise RuntimeError("database schema is newer than this build")
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
 
 
 def _now() -> datetime:
@@ -242,6 +212,12 @@ class ExecutorLease:
     def __init__(self, connection: Connection, local_lock: threading.Lock | None = None) -> None:
         self.connection = connection
         self.local_lock = local_lock
+
+    def check(self) -> None:
+        # Never reconnect this session: a replacement connection would not own the lock.
+        if self.connection.closed or self.connection.invalidated:
+            raise ExecutorBusy("executor ownership connection was lost")
+        self.connection.execute(text("SELECT 1"))
 
     def release(self) -> None:
         try:
@@ -321,6 +297,11 @@ class RunStore:
         now = _now()
         profile_digest = digest(config)
         with self.engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": "profile:" + profile.id},
+                )
             current = _row(
                 connection.execute(
                     select(target_profiles).where(target_profiles.c.id == profile.id)
@@ -364,6 +345,9 @@ class RunStore:
                 "config": config,
                 "credential_refs": credential_refs,
                 "config_digest": profile_digest,
+                "name": profile.name,
+                "adapter": profile.adapter,
+                "updated_at": now,
             }
 
     def create_run(
@@ -413,12 +397,22 @@ class RunStore:
         }
         with self.engine.begin() as connection:
             if client_submission_id:
+                if connection.dialect.name == "postgresql":
+                    connection.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                        {"key": "submission:" + client_submission_id},
+                    )
                 existing = _row(
                     connection.execute(
                         select(runs).where(runs.c.client_submission_id == client_submission_id)
                     ).first()
                 )
                 if existing is not None:
+                    if (
+                        existing["config_digest"] != values["config_digest"]
+                        or existing["parent_run_id"] != parent_run_id
+                    ):
+                        raise ValueError("submission_id was already used for a different request")
                     return existing
             connection.execute(insert(runs).values(**values))
             if replay_spec is not None:
@@ -444,7 +438,21 @@ class RunStore:
     def _insert_replay(self, connection: Connection, run_id: str, spec: dict[str, Any]) -> None:
         connection.execute(insert(replay_specs).values(**self._replay_values(run_id, spec)))
 
-    def run(self, run_id: str) -> dict[str, Any] | None:
+    def save_replay(self, run_id: str, spec: dict[str, Any]) -> None:
+        """Persist resolved inputs before the bridge makes its first target call."""
+        with self.engine.begin() as connection:
+            connection.execute(
+                select(runs.c.id).where(runs.c.id == run_id).with_for_update()
+            ).scalar_one()
+            changed = connection.execute(
+                update(replay_specs)
+                .where(replay_specs.c.run_id == run_id)
+                .values(**self._replay_values(run_id, spec))
+            )
+            if not changed.rowcount:
+                self._insert_replay(connection, run_id, spec)
+
+    def run(self, run_id: str, *, include_events: bool = True) -> dict[str, Any] | None:
         with self.engine.connect() as connection:
             result = _row(connection.execute(select(runs).where(runs.c.id == run_id)).first())
             if result is None:
@@ -457,7 +465,8 @@ class RunStore:
                     select(replay_specs).where(replay_specs.c.run_id == run_id)
                 ).first()
             )
-            result["events"] = self._events(connection, run_id)
+            if include_events:
+                result["events"] = self._events(connection, run_id)
             return result
 
     def list_runs(
@@ -519,22 +528,28 @@ class RunStore:
         }
         with self.engine.begin() as connection:
             current = connection.execute(
-                select(runs.c.status).where(runs.c.id == run_id)
+                select(runs.c.status).where(runs.c.id == run_id).with_for_update()
             ).scalar_one_or_none()
             if current is None:
                 raise KeyError(run_id)
+            if current == status:
+                return
             if status != current and status not in allowed.get(current, set()):
                 raise ValueError(f"invalid run transition {current} -> {status}")
             values: dict[str, Any] = {"status": status}
             if error is not None:
-                values["error"] = error
+                values["error"] = redact(error)
             if status in {"completed", "failed", "cancelled", "interrupted"}:
                 values["finished_at"] = _now()
             connection.execute(update(runs).where(runs.c.id == run_id).values(**values))
 
     def request_cancel(self, run_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as connection:
-            current = _row(connection.execute(select(runs).where(runs.c.id == run_id)).first())
+            current = _row(
+                connection.execute(
+                    select(runs).where(runs.c.id == run_id).with_for_update()
+                ).first()
+            )
             if current is None:
                 return None
             status = current["status"]
@@ -567,10 +582,14 @@ class RunStore:
         truncated = len(serialized.encode()) > self.event_max_bytes
         event_id = uuid4().hex
         with self.engine.begin() as connection:
-            current = connection.execute(
-                select(runs.c.last_event_sequence).where(runs.c.id == run_id)
-            ).scalar_one()
-            sequence = int(current) + 1
+            sequence = connection.execute(
+                update(runs)
+                .where(runs.c.id == run_id, runs.c.status.in_(["queued", "running", "cancelling"]))
+                .values(last_event_sequence=runs.c.last_event_sequence + 1)
+                .returning(runs.c.last_event_sequence)
+            ).scalar_one_or_none()
+            if sequence is None:
+                raise ValueError("cannot append events to a missing or terminal run")
             stored_data: object = data
             if truncated:
                 preview = serialized.encode()[: self.event_max_bytes].decode("utf-8", "ignore")
@@ -601,9 +620,6 @@ class RunStore:
                         event_id=event_id, content=serialized, content_digest=full_digest
                     )
                 )
-            connection.execute(
-                update(runs).where(runs.c.id == run_id).values(last_event_sequence=sequence)
-            )
         return {
             "id": event_id,
             "sequence": sequence,
@@ -642,6 +658,8 @@ class RunStore:
             query = query.limit(limit)
         result = [_row(item) for item in connection.execute(query)]
         for item in result:
+            if not item["artifact_available"]:
+                continue
             artifact = _row(
                 connection.execute(
                     select(event_artifacts).where(event_artifacts.c.event_id == item["id"])
@@ -665,10 +683,14 @@ class RunStore:
     ) -> None:
         with self.engine.begin() as connection:
             current = connection.execute(
-                select(runs.c.status).where(runs.c.id == run_id)
+                select(runs.c.status).where(runs.c.id == run_id).with_for_update()
             ).scalar_one()
-            if current in {"completed", "failed", "cancelled", "interrupted"} and current != status:
+            if current in {"completed", "failed", "cancelled", "interrupted"}:
                 raise ValueError(f"run {run_id} already finalized as {current}")
+            if status not in {"completed", "failed", "cancelled", "interrupted"}:
+                raise ValueError("finalize requires a terminal status")
+            if current == "cancelling":
+                status = "cancelled"
             connection.execute(
                 update(runs)
                 .where(runs.c.id == run_id)
@@ -687,6 +709,12 @@ class RunStore:
             if existing_replay is None:
                 connection.execute(
                     insert(replay_specs).values(**self._replay_values(run_id, replay_spec))
+                )
+            else:
+                connection.execute(
+                    update(replay_specs)
+                    .where(replay_specs.c.run_id == run_id)
+                    .values(**self._replay_values(run_id, replay_spec))
                 )
             if finding is not None:
                 existing_finding = connection.execute(
@@ -746,10 +774,10 @@ class RunStore:
                     origin="cli-import",
                     target_profile_id="legacy-import",
                     target_profile_version=1,
-                    status="completed",
+                    status="imported",
                     submitted_at=now,
                     started_at=None,
-                    finished_at=now,
+                    finished_at=None,
                     config_snapshot=snapshot,
                     config_digest=source_digest,
                     engine_version="legacy",
@@ -760,7 +788,11 @@ class RunStore:
                     summary={
                         "imported": True,
                         "source": source_path.name,
-                        "missing_fields": ["trace", "replay_inputs"],
+                        "source_digest": source_digest,
+                        "verdict": payload.get("status")
+                        if payload.get("status") in {"vulnerable", "clean", "fail", "pass"}
+                        else "unknown",
+                        "missing_fields": ["trace", "replay_inputs", "execution_timestamps"],
                     },
                     error=None,
                     isolation_status={"state": "not-applicable", "imported": True},

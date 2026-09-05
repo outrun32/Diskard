@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from html import escape
 from typing import Any
-from xml.sax.saxutils import escape as xml_escape
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 
 class ExportTooLarge(RuntimeError):
@@ -18,7 +18,7 @@ def _json(value: object) -> str:
 
 def _label(run: dict[str, Any]) -> str:
     summary = run.get("summary") or {}
-    return str(summary.get("verdict") or run.get("status") or "unknown")
+    return str(summary.get("verdict") or "unknown")
 
 
 def render_markdown(run: dict[str, Any]) -> str:
@@ -51,15 +51,18 @@ def render_markdown(run: dict[str, Any]) -> str:
     ]
     for event in run.get("events") or []:
         data = event.get("data") or {}
-        preview = data.get("preview") if isinstance(data, dict) else data
+        preview = event.get("artifact") or _json(data)
         lines.append(
             f"- {event.get('sequence')} {event.get('type')} "
             f"actor={event.get('actor_id') or '-'} session={event.get('session_id') or '-'}: "
-            f"{str(preview)[:1000]}"
+            f"{escape(str(preview))}"
         )
     lines += ["", "## Stored summary", "", "~~~json", _json(summary), "~~~", ""]
     if run.get("error"):
         lines += ["## Error", "", "~~~text", str(run["error"]), "~~~", ""]
+    # Indented code remains literal even if target text contains fences/HTML.
+    lines += ["## Complete stored record", ""]
+    lines += ["    " + line for line in _json(run).splitlines()]
     return "\n".join(lines)
 
 
@@ -73,7 +76,7 @@ def render_html(run: dict[str, Any]) -> str:
             f"<td>{escape(str(event.get('sequence')))}</td>"
             f"<td>{escape(str(event.get('type')))}</td>"
             f"<td>{escape(str(event.get('actor_id') or '-'))}</td>"
-            f"<td><pre>{escape(_json(event.get('data') or {}))}</pre></td>"
+            f"<td><pre>{escape(event.get('artifact') or _json(event.get('data') or {}))}</pre></td>"
             "</tr>"
         )
     body = "".join(rows) or '<tr><td colspan="4">No events captured.</td></tr>'
@@ -105,6 +108,7 @@ v{escape(str(run.get("target_profile_version")))}</div>
 <th>Stored data</th></tr></thead>
 <tbody>{body}</tbody></table>
 <h2>Summary</h2><pre>{escape(_json(summary))}</pre>
+<h2>Complete stored record, evidence and limitations</h2><pre>{escape(_json(run))}</pre>
 </body></html>"""
 
 
@@ -127,20 +131,33 @@ def render_json(run: dict[str, Any]) -> str:
 def render_junit(run: dict[str, Any]) -> str:
     status = str(run.get("status"))
     verdict = _label(run)
-    testcase_attrs = 'name="diskard console run" classname="diskard"'
+    kind = None
+    message = ""
     if status in {"failed", "interrupted", "cancelled"}:
-        child = f'<error message="{xml_escape(str(run.get("error") or status))}" />'
+        kind, message = "error", str(run.get("error") or status)
     elif verdict in {"vulnerable", "fail", "failed"}:
-        child = f'<failure message="security verdict: {xml_escape(verdict)}" />'
-    else:
-        child = ""
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        f'<testsuite name="diskard" tests="1" '
-        f'failures="{1 if child.startswith("<failure") else 0}" '
-        f'errors="{1 if child.startswith("<error") else 0}">'
-        f"<testcase {testcase_attrs}>{child}</testcase></testsuite>"
+        kind, message = "failure", f"security verdict: {verdict}"
+    elif (
+        status != "completed"
+        or verdict not in {"clean", "pass"}
+        or run.get("mode") == "legacy-import"
+    ):
+        kind, message = "skipped", "No conclusive completed security check"
+    suite = Element(
+        "testsuite",
+        name="diskard",
+        tests="1",
+        failures=str(int(kind == "failure")),
+        errors=str(int(kind == "error")),
+        skipped=str(int(kind == "skipped")),
     )
+    case = SubElement(
+        suite, "testcase", name=str(run.get("id") or "diskard console run"), classname="diskard"
+    )
+    if kind:
+        SubElement(case, kind, message=message)
+    SubElement(case, "system-out").text = _json(run)
+    return tostring(suite, encoding="unicode", xml_declaration=True)
 
 
 def render(run: dict[str, Any], format: str, *, max_bytes: int) -> tuple[str, str]:

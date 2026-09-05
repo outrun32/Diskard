@@ -6,13 +6,16 @@ Task 4."""
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 
+@contextmanager
 def _client():
     # Imported lazily, inside the test, so collection doesn't pay the
     # import-time cost (identity bootstrap etc.) for the whole test suite --
@@ -21,7 +24,11 @@ def _client():
 
     from examples.connectors.investment_stand.ui.server import app
 
-    return TestClient(app)
+    with (
+        patch.dict("os.environ", {"DISKARD_ENABLE_LEGACY": "1"}),
+        TestClient(app, base_url="http://localhost") as client,
+    ):
+        yield client
 
 
 def test_live_attacks_lists_all_four_with_auto_attack_flag():

@@ -50,12 +50,12 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0d1117;border:1px sol
 <label for="runProfile">Target profile</label><select id="runProfile"></select>
 <label for="runAttack">Attack family</label><select id="runAttack"></select>
 <label for="runDriver">Driver</label><select id="runDriver"></select>
-<div class="row"><div><label for="runBudget">Budget</label><input id="runBudget" type="number" min="1" max="100" value="1"></div><div><label for="runRepeat">Repeat</label><input id="runRepeat" type="number" min="1" max="20" value="1"></div></div>
+<div class="row"><div><label for="runBudget">Budget</label><input id="runBudget" type="number" min="1" max="1" value="1" readonly></div><div><label for="runRepeat">Repeat</label><input id="runRepeat" type="number" min="1" max="1" value="1" readonly></div></div>
 <div id="runRequirements" class="muted"></div><div class="actions"><button id="startRun">Submit experiment</button></div>
 </div>
 <div class="panel"><h2>Durable history</h2>
 <div class="row"><div><label for="filterStatus">Status</label><select id="filterStatus"><option value="">all</option><option>queued</option><option>running</option><option>completed</option><option>failed</option><option>cancelled</option><option>interrupted</option></select></div><div><label for="filterAttack">Attack</label><input id="filterAttack" placeholder="optional"></div><div><label>&nbsp;</label><button id="refreshRuns" class="secondary">Refresh</button></div></div>
-<table><thead><tr><th>Run</th><th>Target / attack</th><th>Status</th><th>Verdict</th><th>Submitted</th></tr></thead><tbody id="runsBody"></tbody></table><p id="runsEmpty" class="muted"></p>
+<table><thead><tr><th>Run</th><th>Target / attack</th><th>Status</th><th>Verdict</th><th>Submitted</th></tr></thead><tbody id="runsBody"></tbody></table><p id="runsEmpty" class="muted"></p><div class="actions"><button id="runsPrevious" class="secondary">Previous page</button><span id="runsPage"></span><button id="runsNext" class="secondary">Next page</button></div>
 </div>
 </div>
 </section>
@@ -68,7 +68,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0d1117;border:1px sol
 </section>
 
 <section id="compare" class="section" hidden>
-<div class="panel"><h2>Compare saved runs</h2><div class="row"><div><label for="compareLeft">Left run</label><select id="compareLeft"></select></div><div><label for="compareRight">Right run</label><select id="compareRight"></select></div><div><label>&nbsp;</label><button id="compareButton">Compare</button></div></div><div id="compareResult"></div></div>
+<div class="panel"><h2>Compare saved runs</h2><div class="row"><div><label for="compareLeft">Left run</label><select id="compareLeft"></select></div><div><label for="compareRight">Right run</label><select id="compareRight"></select></div><div><label>&nbsp;</label><button id="compareButton">Compare</button></div></div><pre id="compareResult"></pre></div>
 </section>
 <div id="toast" role="status"></div>
 
@@ -77,7 +77,10 @@ var state={setup:null,targets:[],runs:[],selectedRun:null,events:[],playbackInde
 var profileTemplate={schema_version:1,id:"investment-local",name:"Investment demo",adapter:"investment-stand",base_url:"http://host.docker.internal:8600",lifecycle:{},actors:{attacker:{cus:"1001",credential_env:"DISKARD_ATTACKER_TARGET_KEY"},trigger_user:{cus:"1002",credential_env:"DISKARD_TRIGGER_TARGET_KEY"},data_subject:{cus:"1003",credential_env:"DISKARD_SUBJECT_TARGET_KEY",access_token_env:"DISKARD_SUBJECT_TARGET_TOKEN"},control:{cus:"1004",credential_env:"DISKARD_CONTROL_TARGET_KEY"}},adapter_options:{invest_url:"http://host.docker.internal:8200",mongo_uri_env:"DISKARD_TARGET_MONGO_URI"}};
 
 function $(id){return document.getElementById(id)}
-function show(section){document.querySelectorAll(".section").forEach(function(el){el.hidden=el.id!==section})}
+function show(section){
+  document.querySelectorAll(".section").forEach(el=>{el.hidden=el.id!==section});
+  if(section!=="detail"){state.generation=(state.generation||0)+1;history.replaceState(null,"","#"+section);if(state.playbackTimer)togglePlayback()}
+}
 function toast(message){$("toast").textContent=message;$("toast").style.display="block";setTimeout(function(){$("toast").style.display="none"},4000)}
 async function api(url,options){var response=await fetch(url,options||{});if(!response.ok){var detail=await response.text();throw new Error(response.status+" "+detail)}return response.json()}
 function json(value){return JSON.stringify(value,null,2)}
@@ -99,27 +102,87 @@ async function loadSetup(){
 }
 function renderTargets(){clear($("targets"));if(!state.targets.length){text($("targets"),"No profiles. Use the editor below or copy config/targets.example.yaml.");return}state.targets.forEach(function(profile,index){var row=document.createElement("div");row.className="check";var button=document.createElement("button");button.className="secondary";button.textContent=profile.name+" v"+profile.version;button.onclick=function(){profileToEditor(profile.config);$("profileJson").dataset.id=profile.id};row.appendChild(button);var span=document.createElement("span");span.className="muted";text(span,profile.adapter+" / "+profile.id);row.appendChild(span);$("targets").appendChild(row);if(index===0&&!$("profileJson").value)profileToEditor(profile.config)})}
 function fillProfileSelects(){clear($("runProfile"));state.targets.forEach(function(p){option($("runProfile"),p.id,p.name+" v"+p.version)});if(state.targets.length)$("runProfile").value=state.targets[0].id}
-async function loadCatalog(){clear($("runAttack"));clear($("runDriver"));var data=await api("/api/v1/catalog?target_id="+encodeURIComponent(selectedProfile()));(data.attacks||[]).forEach(function(a){var o=document.createElement("option");o.value=a.id;o.textContent=a.label||a.id;o.disabled=!a.available;if(a.reason)o.title=a.reason;$("runAttack").appendChild(o)});(data.drivers||[]).forEach(function(d){var o=document.createElement("option");o.value=d.id;o.textContent=d.label||d.id;o.disabled=!d.available;if(d.reason)o.title=d.reason;$("runDriver").appendChild(o)});updateRequirements()}
-function updateRequirements(){var a=$("runAttack").selectedOptions[0];$("runRequirements").textContent=a&&a.disabled?(a.title||"Unavailable"):"Capability requirements are shown in the catalog and checked again on submit."}
-async function loadRuns(){try{var params=new URLSearchParams({limit:"100"});if($("filterStatus").value)params.set("status",$("filterStatus").value);if($("filterAttack").value)params.set("attack",$("filterAttack").value);var data=await api("/api/v1/runs?"+params);state.runs=data.items||[];renderRuns();renderCompareOptions()}catch(error){$("runsEmpty").textContent=error.message}}
+async function loadCatalog(){clear($("runAttack"));clear($("runDriver"));var data=await api("/api/v1/catalog?target_id="+encodeURIComponent(selectedProfile()));state.catalog=data;(data.attacks||[]).forEach(function(a){var o=document.createElement("option");o.value=a.id;o.textContent=a.label||a.id;o.disabled=!a.available;if(a.reason)o.title=a.reason;$("runAttack").appendChild(o)});(data.drivers||[]).forEach(function(d){var o=document.createElement("option");o.value=d.id;o.textContent=d.label||d.id;o.disabled=!d.available;if(d.reason)o.title=d.reason;$("runDriver").appendChild(o)});updateRequirements()}
+function updateRequirements(){
+ const attack=(state.catalog?.attacks||[]).find(a=>a.id===currentAttack());
+ $("runRequirements").textContent=attack?(attack.reason||"Requires: "+(attack.requirements||[]).join(", "))+ " Fixed-input driver: one scenario, no search. Validate the profile before a live run.":"Select a profile.";
+ $("startRun").disabled=!attack?.available||!state.setup?.storage_ready;
+}
+async function loadRuns(){try{var params=new URLSearchParams({limit:"50",offset:String(state.offset||0)});if($("filterStatus").value)params.set("status",$("filterStatus").value);if($("filterAttack").value)params.set("attack",$("filterAttack").value);var data=await api("/api/v1/runs?"+params);state.runs=data.items||[];$("runsPage").textContent=((state.offset||0)+1)+"–"+((state.offset||0)+state.runs.length)+" / "+data.total;$("runsPrevious").disabled=!(state.offset||0);$("runsNext").disabled=(state.offset||0)+state.runs.length>=data.total;renderRuns();renderCompareOptions()}catch(error){$("runsEmpty").textContent=error.message}}
 function renderRuns(){var body=$("runsBody");clear(body);$("runsEmpty").textContent=state.runs.length?"":"No saved runs yet.";state.runs.forEach(function(run){var tr=document.createElement("tr");var id=document.createElement("td");var link=document.createElement("button");link.className="secondary";link.textContent=run.id;link.onclick=function(){openRun(run.id)};id.appendChild(link);tr.appendChild(id);var target=document.createElement("td");text(target,String(run.target_profile_id)+" / "+String(run.scenario_version));tr.appendChild(target);var st=document.createElement("td");status(st,run.status);tr.appendChild(st);var verdict=document.createElement("td");var summary=run.summary||{};text(verdict,summary.verdict||"pending");tr.appendChild(verdict);var when=document.createElement("td");text(when,run.submitted_at||"");tr.appendChild(when);body.appendChild(tr)})}
 function renderCompareOptions(){["compareLeft","compareRight"].forEach(function(id){clear($(id));state.runs.forEach(function(run){option($(id),run.id,run.id+" — "+run.scenario_version)})})}
-async function openRun(id){try{var run=await api("/api/v1/runs/"+encodeURIComponent(id));state.selectedRun=run;state.events=run.events||[];state.playbackIndex=Number(localStorage.getItem("diskard.playback."+id)||0);show("detail");renderDetail();if(run.status==="queued"||run.status==="running"||run.status==="cancelling")pollRun(id)}catch(error){toast(error.message)}}
+async function openRun(id){
+  if(state.playbackTimer)togglePlayback();
+  const generation=state.generation=(state.generation||0)+1;
+  state.selectedRun={id:id};state.events=[];
+  try{state.playbackIndex=Number(localStorage.getItem("diskard.playback."+id)||0)}catch(_){state.playbackIndex=0}
+  history.replaceState(null,"","#run/"+encodeURIComponent(id));show("detail");
+  $("timeline").textContent="Loading stored events…";
+  await pollRun(id,generation);
+}
 function renderDetail(){var run=state.selectedRun;if(!run)return;$("detailTitle").textContent="Run "+run.id;$("detailMeta").textContent=run.target_profile_id+" v"+run.target_profile_version+" · "+run.scenario_version+" · "+run.engine_version+" · build "+(run.source_sha||"unknown");$("detailStatus").textContent="";status($("detailStatus"),run.status);$("cancelRun").disabled=!["queued","running","cancelling"].includes(run.status);$("reportHtml").href="/api/v1/runs/"+run.id+"/report?format=html";$("reportMd").href="/api/v1/runs/"+run.id+"/report?format=markdown";$("reportJson").href="/api/v1/runs/"+run.id+"/bundle";$("reportJunit").href="/api/v1/runs/"+run.id+"/report?format=junit";$("resultJson").textContent=json({summary:run.summary,raw_engine_result:run.raw_engine_result,error:run.error});var replay=run.replay_spec||{};$("replayInfo").textContent=(replay.complete?"Exact resolved-input replay is available. ":"Run same configuration again; exact inputs are incomplete. ")+(replay.unsupported_reasons||[]).join(" ");renderTimeline();renderPlayback()}
-function renderTimeline(){var el=$("timeline");clear(el);if(!state.events.length){text(el,"No persisted events yet.");return}state.events.forEach(function(event){var box=document.createElement("div");box.className="event";var head=document.createElement("div");head.className="event-head";text(head,"#"+event.sequence+" "+event.type+" · actor "+(event.actor_id||"-")+" · session "+(event.session_id||"-"));box.appendChild(head);var body=document.createElement("div");body.className="event-body";var data=event.data||{};text(body,json(data));if(event.truncated){var missing=document.createElement("div");missing.className="missing";text(missing,"Preview truncated; full redacted artifact is available in the bundle.");body.appendChild(missing)}box.appendChild(body);el.appendChild(box)})}
-function renderPlayback(){var run=state.selectedRun;if(!run)return;var events=state.events;if(state.playbackIndex>events.length)state.playbackIndex=events.length;localStorage.setItem("diskard.playback."+run.id,String(state.playbackIndex));$("playbackPosition").textContent=state.playbackIndex+" / "+events.length;if(!events.length){$("playbackFrame").textContent="No events";return}if(state.playbackIndex===0){$("playbackFrame").textContent="Recorded playback — press Play or Step.";return}var event=events[state.playbackIndex-1];$("playbackFrame").textContent="Recorded playback · event #"+event.sequence+" "+event.type+"\\n\\n"+json(event.data||{})}
+function renderTimeline(){var el=$("timeline");clear(el);if(!state.events.length){text(el,"No persisted events yet.");return}state.events.forEach(function(event){var box=document.createElement("div");box.className="event";var head=document.createElement("div");head.className="event-head";text(head,"#"+event.sequence+" "+event.type+" · actor "+(event.actor_id||"-")+" · session "+(event.session_id||"-"));box.appendChild(head);var body=document.createElement("div");body.className="event-body";var data=event.data||{};text(body,event.artifact||json(data));if(event.truncated){var missing=document.createElement("div");missing.className="missing";text(missing,"Preview exceeded the limit; full redacted artifact is shown and included in exports.");body.appendChild(missing)}box.appendChild(body);el.appendChild(box)})}
+function renderPlayback(){
+  const run=state.selectedRun;if(!run)return;
+  const events=state.events;state.playbackIndex=Math.max(0,Math.min(state.playbackIndex||0,events.length));
+  try{localStorage.setItem("diskard.playback."+run.id,String(state.playbackIndex))}catch(_){}
+  $("playbackPosition").textContent=state.playbackIndex+" / "+events.length;
+  const event=events[state.playbackIndex-1];
+  $("playbackFrame").textContent=event?"Recorded playback · event #"+event.sequence+" "+event.type+"\n\n"+(event.artifact||json(event.data||{})):"Recorded playback — press Play or Step. No target/model calls.";
+}
 function stepPlayback(){if(!state.events.length)return;state.playbackIndex=Math.min(state.events.length,state.playbackIndex+1);renderPlayback()}
 function togglePlayback(){if(state.playbackTimer){clearInterval(state.playbackTimer);state.playbackTimer=null;$("playbackToggle").textContent="Play";return}$("playbackToggle").textContent="Pause";state.playbackTimer=setInterval(function(){if(state.playbackIndex>=state.events.length){clearInterval(state.playbackTimer);state.playbackTimer=null;$("playbackToggle").textContent="Play";return}stepPlayback()},Number($("playbackSpeed").value))}
-async function pollRun(id){if(state.polling)return;state.polling=true;try{while(state.selectedRun&&state.selectedRun.id===id&&["queued","running","cancelling"].includes(state.selectedRun.status)){await new Promise(function(resolve){setTimeout(resolve,900)});var run=await api("/api/v1/runs/"+encodeURIComponent(id));state.selectedRun=run;state.events=run.events||[];renderDetail()}await loadRuns()}catch(error){toast(error.message)}finally{state.polling=false}}
-async function submitRun(){try{var payload={profile_id:selectedProfile(),attack:currentAttack(),driver:$("runDriver").value,budget:Number($("runBudget").value),repeat:Number($("runRepeat").value),submission_id:crypto.randomUUID()};var run=await api("/api/v1/runs",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":payload.submission_id},body:JSON.stringify(payload)});await loadRuns();openRun(run.id)}catch(error){toast(error.message)}}
+async function pollRun(id,generation){
+  let failures=0;
+  while(state.generation===generation){
+    try{
+      const run=await api("/api/v1/runs/"+encodeURIComponent(id));
+      if(state.generation!==generation)return;
+      let after=state.events.length?state.events[state.events.length-1].sequence:0;
+      do{
+        const page=await api("/api/v1/runs/"+encodeURIComponent(id)+"/events?after="+after+"&limit=100");
+        if(state.generation!==generation)return;
+        state.events.push(...page.items);
+        if(!page.items.length)break;
+        after=page.items[page.items.length-1].sequence;
+      }while(after<run.last_event_sequence);
+      state.selectedRun=run;renderDetail();failures=0;
+      if(!["queued","running","cancelling"].includes(run.status)){await loadRuns();return}
+    }catch(error){
+      failures++;
+      $("detailMeta").textContent="Connection interrupted; retrying. "+error.message;
+      if(failures>=5){toast("Could not reload run. Refresh this page to retry.");return}
+    }
+    await new Promise(resolve=>setTimeout(resolve,Math.min(8000,900*Math.pow(2,failures))));
+  }
+}
+async function submitRun(){
+  if(state.submitting)return;
+  state.submitting=true;$("startRun").disabled=true;
+  try{
+    const payload={profile_id:selectedProfile(),attack:currentAttack(),driver:$("runDriver").value,budget:Number($("runBudget").value),repeat:Number($("runRepeat").value)};
+    const signature=json(payload);
+    if(!state.submission||state.submission.signature!==signature)state.submission={signature:signature,id:crypto.randomUUID()};
+    payload.submission_id=state.submission.id;
+    const run=await api("/api/v1/runs",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":payload.submission_id},body:JSON.stringify(payload)});
+    state.submission=null;await loadRuns();openRun(run.id);
+  }catch(error){toast(error.message)}finally{state.submitting=false;$("startRun").disabled=false}
+}
 async function saveProfile(){try{var data=JSON.parse($("profileJson").value);var existing=$("profileJson").dataset.id||data.id;var url="/api/v1/targets/"+encodeURIComponent(existing);var method=state.targets.some(function(p){return p.id===existing})?"PATCH":"POST";var result=await api(method==="POST"?"/api/v1/targets":url,{method:method,headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});$("profileJson").dataset.id=result.id;await loadSetup();toast("Profile saved as version "+result.version)}catch(error){toast(error.message)}}
-async function validateTarget(){var id=selectedProfile();try{var result=await api("/api/v1/targets/"+encodeURIComponent(id)+"/validate",{method:"POST"});toast(result.ready?"Target profile is ready":"Target profile has blocked checks") ;$("readiness").replaceChildren();result.checks.forEach(function(item){var row=document.createElement("div");row.className="check";text(row,item.label||item.id);var s=document.createElement("span");s.className="state "+item.status;text(s,item.status);row.appendChild(s);$("readiness").appendChild(row)})}catch(error){toast(error.message)}}
+async function validateTarget(){var id=$("profileJson").dataset.id||selectedProfile();try{var result=await api("/api/v1/targets/"+encodeURIComponent(id)+"/validate",{method:"POST"});toast(result.ready?"Target profile is ready":"Target profile has blocked checks") ;$("readiness").replaceChildren();result.checks.forEach(function(item){var row=document.createElement("div");row.className="check";text(row,item.label||item.id);var s=document.createElement("span");s.className="state "+item.status;text(s,item.status);row.title=item.reason||item.detail||"";row.appendChild(s);text(row,item.reason||"");$("readiness").appendChild(row)})}catch(error){toast(error.message)}}
 async function rerun(){if(!state.selectedRun)return;try{var run=await api("/api/v1/runs/"+state.selectedRun.id+"/rerun",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});await loadRuns();openRun(run.id)}catch(error){toast(error.message)}}
 async function compare(){try{var result=await api("/api/v1/compare?left_id="+encodeURIComponent($("compareLeft").value)+"&right_id="+encodeURIComponent($("compareRight").value));$("compareResult").textContent=json({configuration_differences:result.configuration_differences,statistical_claim:result.statistical_claim,left:{status:result.left.status,summary:result.left.summary},right:{status:result.right.status,summary:result.right.summary}})}catch(error){toast(error.message)}}
 document.querySelectorAll("[data-section]").forEach(function(button){button.onclick=function(){show(button.dataset.section);if(button.dataset.section==="runs"||button.dataset.section==="compare")loadRuns()}});
 $("newTarget").onclick=function(){$("profileJson").dataset.id="";profileToEditor(profileTemplate)};
 $("saveTarget").onclick=saveProfile;$("validateTarget").onclick=validateTarget;$("runProfile").onchange=loadCatalog;$("runAttack").onchange=updateRequirements;$("startRun").onclick=submitRun;$("refreshRuns").onclick=loadRuns;$("cancelRun").onclick=async function(){if(state.selectedRun)try{await api("/api/v1/runs/"+state.selectedRun.id+"/cancel",{method:"POST"});openRun(state.selectedRun.id)}catch(error){toast(error.message)}};$("rerunRun").onclick=rerun;$("playbackStep").onclick=stepPlayback;$("playbackToggle").onclick=togglePlayback;$("compareButton").onclick=compare;$("profileJson").value=json(profileTemplate);
-loadSetup();
+$("runsPrevious").onclick=function(){state.offset=Math.max(0,(state.offset||0)-50);loadRuns()};
+$("runsNext").onclick=function(){state.offset=(state.offset||0)+50;loadRuns()};
+["filterStatus","filterAttack"].forEach(id=>{$(id).onchange=function(){state.offset=0;loadRuns()}});
+loadSetup().then(function(){
+ const route=location.hash.slice(1);
+ if(route.startsWith("run/"))openRun(decodeURIComponent(route.slice(4)));
+ else if(["runs","compare","setup"].includes(route)){show(route);if(route!=="setup")loadRuns()}
+});
 </script>
 </body>
 </html>

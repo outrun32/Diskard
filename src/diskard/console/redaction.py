@@ -15,6 +15,7 @@ _SECRET_KEY = re.compile(
 )
 _SECRET_QUERY = re.compile(r"(?:key|token|secret|password|signature|credential|auth)", re.I)
 _BEARER = re.compile(r"(?i)(bearer\s+)[^\s,;]+")
+_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>\"']+")
 
 
 def _redact_url(value: str) -> str:
@@ -25,8 +26,14 @@ def _redact_url(value: str) -> str:
     if not parts.scheme or not parts.netloc:
         return value
     netloc = parts.hostname or ""
-    if parts.port:
-        netloc += f":{parts.port}"
+    try:
+        port = parts.port
+    except ValueError:
+        return REDACTED
+    if ":" in netloc:
+        netloc = f"[{netloc}]"
+    if port:
+        netloc += f":{port}"
     if parts.username is not None:
         netloc = f"{REDACTED}@{netloc}"
     query = [
@@ -48,9 +55,9 @@ def redact(value: object, secret_values: Iterable[str] = ()) -> object:
     if isinstance(value, (list, tuple, set)):
         return [redact(item, known) for item in value]
     if isinstance(value, str):
-        result = _redact_url(value)
+        result = _URL.sub(lambda match: _redact_url(match.group()), value)
         result = _BEARER.sub(rf"\1{REDACTED}", result)
-        for secret in known:
+        for secret in sorted(known, key=len, reverse=True):
             result = result.replace(secret, REDACTED)
         return result
     if value is None or isinstance(value, (bool, int, float)):

@@ -17,6 +17,8 @@ venv/
 .env
 .env.*
 !.env.example
+config/targets.yaml
+config/secrets/
 artifacts/
 runs/
 

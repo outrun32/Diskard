@@ -4,6 +4,9 @@ services:
     environment:
       DISKARD_HOST: ${DISKARD_HOST:-0.0.0.0}
       DISKARD_PORT: 8700
+      DISKARD_LOG_LEVEL: ${DISKARD_LOG_LEVEL:-INFO}
+      GISKARD_TELEMETRY_DISABLED: ${GISKARD_TELEMETRY_DISABLED:-true}
+      GISKARD_QUIET: ${GISKARD_QUIET:-true}
       DISKARD_DATABASE_URL: ${DISKARD_DATABASE_URL:?set DISKARD_DATABASE_URL to an external PostgreSQL URL}
       DISKARD_BUILD_SHA: ${DISKARD_BUILD_SHA:-unknown}
       DISKARD_PROFILE_FILE: /config/targets.yaml
@@ -23,6 +26,7 @@ services:
       ATTACKER_MODEL: ${ATTACKER_MODEL:-openai/gpt-4o-mini}
     ports:
       - "127.0.0.1:${DISKARD_PUBLISHED_PORT:-8700}:8700"
+    stop_grace_period: 90s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

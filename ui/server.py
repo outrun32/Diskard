@@ -216,7 +216,11 @@ async def lifespan(app: FastAPI):
     ctx.mongo = MongoEvidence()
     ctx.invest = InvestServerEvidence()
     ctx.semantic = SemanticMemoryEvidence()
-    ctx.attacker = AttackerLLM() if os.environ.get("OPENAI_API_KEY") else None
+    ctx.attacker = (
+        AttackerLLM()
+        if os.environ.get("DISKARD_ENABLE_LEGACY") == "1" and os.environ.get("OPENAI_API_KEY")
+        else None
+    )
     ctx.identities = {}
     try:
         from diskard.console.runtime import ConsoleRuntime
@@ -239,6 +243,42 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Diskard console", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def local_console_boundary(request: Request, call_next):
+    runtime = getattr(ctx, "console", None)
+    if runtime is not None:
+        host = request.url.hostname or ""
+        if host not in runtime.settings.allowed_hosts:
+            return JSONResponse(status_code=400, content={"detail": "unexpected Host header"})
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            origin = request.headers.get("origin")
+            if origin and origin not in runtime.settings.allowed_origins:
+                return JSONResponse(
+                    status_code=403, content={"detail": "unexpected browser origin"}
+                )
+        if (
+            request.url.path.startswith("/api/v1/")
+            and request.url.path != "/api/v1/setup"
+            and not runtime.ready
+        ):
+            return JSONResponse(
+                status_code=503, content={"detail": runtime.startup_error or "storage unavailable"}
+            )
+    if (
+        request.method == "POST"
+        and request.url.path.startswith(("/api/jobs/", "/api/live/"))
+        and ((runtime is not None and runtime.ready) or os.getenv("DISKARD_ENABLE_LEGACY") != "1")
+    ):
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Legacy execution disabled: use the durable console queue"},
+        )
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 async def _ensure_identities() -> dict[str, Actor]:
@@ -829,7 +869,7 @@ def _guard_state_change(request: Request) -> None:
         raise HTTPException(503, "durable console is unavailable")
     settings = runtime.settings
     host = request.headers.get("host", "").split(":", 1)[0].lower()
-    if host and host not in settings.allowed_hosts and host != "testserver":
+    if host and host not in settings.allowed_hosts:
         raise HTTPException(400, "unexpected Host header")
     origin = request.headers.get("origin")
     if origin and origin not in settings.allowed_origins:
@@ -1006,7 +1046,7 @@ def create_durable_run(request: Request, payload: RunCreateRequest):
 
 @app.get("/api/v1/runs/{run_id}")
 def get_durable_run(run_id: str):
-    run = _console_runtime().require_store().run(run_id)
+    run = _console_runtime().require_store().run(run_id, include_events=False)
     if run is None:
         raise HTTPException(404, "unknown run")
     return run
@@ -1019,7 +1059,7 @@ def get_durable_events(
     limit: int = Query(default=100, ge=1, le=500),
 ):
     store = _console_runtime().require_store()
-    if store.run(run_id) is None:
+    if store.run(run_id, include_events=False) is None:
         raise HTTPException(404, "unknown run")
     return store.events_page(run_id, after=after, limit=limit)
 

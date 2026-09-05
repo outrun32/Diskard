@@ -19,6 +19,7 @@ from diskard.console.contracts import (
     RunSpec,
     TargetProfile,
 )
+from diskard.console.redaction import redact
 from diskard.console.repository import (
     RunStore,
     make_engine,
@@ -84,7 +85,7 @@ class ConsoleRuntime:
             self.executor_task = asyncio.create_task(self._executor_loop())
         except Exception as exc:  # noqa: BLE001
             self.startup_error = (
-                f"Console storage/executor is not ready: {exc}. "
+                f"Console storage/executor is not ready ({type(exc).__name__}). "
                 "Check DISKARD_DATABASE_URL, PostgreSQL health and migrations."
             )
             log.error(self.startup_error)
@@ -120,12 +121,14 @@ class ConsoleRuntime:
                 )
 
     async def stop(self) -> None:
+        self.started = False
         self.stop_event.set()
+        for cancellation in self.cancellations.values():
+            cancellation.set()
         if self.executor_task is not None:
-            try:
-                await asyncio.wait_for(self.executor_task, timeout=5)
-            except (TimeoutError, asyncio.CancelledError):
-                self.executor_task.cancel()
+            # Cancelling to_thread does not stop its OS thread. Keep the lease until
+            # execution and cleanup really finish; container stop is the hard bound.
+            await asyncio.shield(self.executor_task)
         if self.lease is not None:
             self.lease.release()
             self.lease = None
@@ -198,7 +201,14 @@ class ConsoleRuntime:
             ]
         else:
             checks = [{"id": "database", "label": "Diskard database", "status": "ready"}]
-            checks += (await self.bridge.validate(selected)).checks
+            checks += [
+                {
+                    "id": "target_api",
+                    "label": "target validation",
+                    "status": "unknown",
+                    "reason": "Use Validate profile to probe the target explicitly",
+                }
+            ]
         return {
             "storage_ready": store_ready,
             "executor_owned": self.lease is not None,
@@ -311,8 +321,8 @@ class ConsoleRuntime:
             raise ValueError((attack_capability or {}).get("reason", "attack is unavailable"))
         if driver_capability is None or not driver_capability.get("available"):
             raise ValueError((driver_capability or {}).get("reason", "driver is unavailable"))
-        if not 1 <= int(options.get("budget", 1)) <= 100:
-            raise ValueError("budget must be between 1 and 100")
+        if int(options.get("budget", 1)) != 1:
+            raise ValueError("fixed-input driver requires budget=1; no search is performed")
         if int(options.get("repeat", 1)) != 1:
             raise ValueError(
                 "repeat is limited to 1 until the bridge exposes repeat-safe orchestration"
@@ -360,6 +370,31 @@ class ConsoleRuntime:
         if saved is None:
             return None
         snapshot = saved.get("config_snapshot") or {}
+        if saved.get("mode") == "legacy-import":
+            raise ValueError("legacy records have no executable profile snapshot")
+        if saved["status"] in {"queued", "running", "cancelling"}:
+            raise ValueError("wait for the parent run to finish before rerunning")
+        if profile_id is None:
+            profile = TargetProfile.model_validate(snapshot["profile"])
+            manifest = saved.get("replay_spec") or {}
+            if manifest.get("complete") and saved.get("source_sha") != self.settings.build_sha:
+                raise ValueError("exact rerun requires the original source build")
+            return store.create_run(
+                run_id=uuid4().hex,
+                profile={
+                    "id": profile.id,
+                    "version": saved["target_profile_version"],
+                    "config": profile.model_dump(mode="json"),
+                },
+                mode="rerun",
+                origin="console-rerun",
+                attack=snapshot["attack"],
+                driver=snapshot["driver"],
+                options=snapshot.get("options") or {},
+                source_sha=self.settings.build_sha,
+                parent_run_id=run_id,
+                replay_spec=manifest,
+            )
         selected_profile = profile_id or saved["target_profile_id"]
         options = snapshot.get("options") or {"budget": 1, "repeat": 1}
         return self.create_run(
@@ -376,6 +411,7 @@ class ConsoleRuntime:
         while not self.stop_event.is_set():
             try:
                 store = self.require_store()
+                self.lease.check()
                 claimed = await asyncio.to_thread(store.claim_next_run)
                 if claimed is None:
                     await asyncio.sleep(self.settings.executor_poll_seconds)
@@ -383,19 +419,22 @@ class ConsoleRuntime:
                 await self._execute(claimed)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                log.exception("executor loop failed; retrying")
-                await asyncio.sleep(min(2, self.settings.executor_poll_seconds * 4))
+            except Exception as exc:
+                self.startup_error = (
+                    f"Executor stopped safely ({type(exc).__name__}); "
+                    "restart after checking storage"
+                )
+                log.error(self.startup_error)
+                self.stop_event.set()
+                for cancellation in self.cancellations.values():
+                    cancellation.set()
 
     async def _execute(self, row: dict[str, Any]) -> None:
         store = self.require_store()
         run_id = row["id"]
         cancellation = self.cancellations.setdefault(run_id, CancellationFlag())
-        profile_row = store.profile(row["target_profile_id"])
-        if profile_row is None:
-            raise RuntimeError(f"target profile {row['target_profile_id']!r} no longer exists")
-        profile = TargetProfile.model_validate(profile_row["config"])
         snapshot = row.get("config_snapshot") or {}
+        profile = TargetProfile.model_validate(snapshot["profile"])
         attack = str(snapshot.get("attack") or row["scenario_version"])
         driver = str(snapshot.get("driver") or "template")
         options = snapshot.get("options") or {"budget": 1, "repeat": 1}
@@ -405,13 +444,14 @@ class ConsoleRuntime:
             attack=attack,
             driver=driver,
             options=options,
-            resolved_manifest={
+            resolved_manifest=(store.run(run_id, include_events=False) or {}).get("replay_spec")
+            or {
                 "schema_version": 1,
                 "driver": driver,
                 "scenario_version": attack,
                 "parameters": options,
                 "source_sha": row.get("source_sha", self.settings.build_sha),
-                "credential_refs": profile_row.get("credential_refs", {}),
+                "credential_refs": {},
                 "state_requirements": {"restore": "unsupported"},
                 "resolved_inputs": {},
                 "payload": {},
@@ -419,7 +459,11 @@ class ConsoleRuntime:
         )
 
         def sink(record: EventRecord) -> None:
+            if self.lease is not None:
+                self.lease.check()
             store.append_event(run_id, record)
+            if record.type == "replay.resolved":
+                store.save_replay(run_id, record.data)
 
         try:
             store.append_event(
@@ -440,7 +484,7 @@ class ConsoleRuntime:
                 finding=result.finding,
             )
         except Exception as exc:  # noqa: BLE001
-            error = str(exc)
+            error = str(redact(str(exc)))
             try:
                 store.append_event(
                     run_id, EventRecord(type="executor.error", data={"error": error})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -15,13 +16,23 @@ def _csv(value: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def source_fingerprint() -> str:
+    """Content identity works in images without .git, including uncommitted fixes."""
+    root = Path(__file__).resolve().parents[1]
+    result = hashlib.sha256()
+    for path in sorted(root.rglob("*.py")):
+        result.update(path.relative_to(root).as_posix().encode())
+        result.update(path.read_bytes().replace(b"\r\n", b"\n"))
+    return "sha256:" + result.hexdigest()
+
+
 class ConsoleSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = Field(default=8700, ge=1, le=65535)
     published_port: int = Field(default=8700, ge=1, le=65535)
     database_url: str = "postgresql+psycopg://diskard:CHANGE_ME@postgres:5432/diskard"
     log_level: str = "INFO"
-    build_sha: str = Field(default="unknown", min_length=1, max_length=160)
+    build_sha: str = Field(default_factory=source_fingerprint, min_length=1, max_length=160)
     profile_file: Path = Path("/config/targets.yaml")
     event_max_bytes: int = Field(default=262_144, ge=4096, le=10_485_760)
     export_max_bytes: int = Field(default=52_428_800, ge=65_536, le=524_288_000)
@@ -37,20 +48,31 @@ class ConsoleSettings(BaseModel):
             raise ValueError("DISKARD_DATABASE_URL must be a PostgreSQL URL")
         if not parsed.hostname:
             raise ValueError("DISKARD_DATABASE_URL must include a host")
-        return value
+        return value.replace("postgresql://", "postgresql+psycopg://", 1)
 
     @classmethod
     def from_env(cls) -> ConsoleSettings:
+        from sqlalchemy.engine import URL
+
+        database_url = os.getenv("DISKARD_DATABASE_URL") or URL.create(
+            "postgresql+psycopg",
+            username=os.getenv("DISKARD_DB_USER", "diskard"),
+            password=os.getenv("DISKARD_DB_PASSWORD", "CHANGE_ME"),
+            host=os.getenv("DISKARD_DB_HOST", "postgres"),
+            port=5432,
+            database=os.getenv("DISKARD_DB_NAME", "diskard"),
+        ).render_as_string(hide_password=False)
         return cls(
             host=os.getenv("DISKARD_HOST", "0.0.0.0"),
             port=int(os.getenv("DISKARD_PORT", "8700")),
             published_port=int(os.getenv("DISKARD_PUBLISHED_PORT", "8700")),
-            database_url=os.getenv(
-                "DISKARD_DATABASE_URL",
-                "postgresql+psycopg://diskard:CHANGE_ME@postgres:5432/diskard",
-            ),
+            database_url=database_url,
             log_level=os.getenv("DISKARD_LOG_LEVEL", "INFO"),
-            build_sha=os.getenv("DISKARD_BUILD_SHA", "unknown"),
+            build_sha=(
+                os.getenv("DISKARD_BUILD_SHA")
+                if os.getenv("DISKARD_BUILD_SHA") not in {None, "", "unknown"}
+                else source_fingerprint()
+            ),
             profile_file=Path(os.getenv("DISKARD_PROFILE_FILE", "/config/targets.yaml")),
             event_max_bytes=int(os.getenv("DISKARD_EVENT_MAX_BYTES", "262144")),
             export_max_bytes=int(os.getenv("DISKARD_EXPORT_MAX_BYTES", "52428800")),
@@ -65,4 +87,7 @@ class ConsoleSettings(BaseModel):
     @property
     def database_configured(self) -> bool:
         default = "postgresql+psycopg://diskard:CHANGE_ME@postgres:5432/diskard"
-        return bool(os.getenv("DISKARD_DATABASE_URL")) or self.database_url != default
+        return (
+            bool(os.getenv("DISKARD_DATABASE_URL") or os.getenv("DISKARD_DB_HOST"))
+            or self.database_url != default
+        )

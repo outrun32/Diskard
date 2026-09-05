@@ -22,7 +22,3 @@ targets:
     adapter_options:
       invest_url: http://host.docker.internal:8200
       mongo_uri_env: DISKARD_TARGET_MONGO_URI
-      keycloak_url: http://host.docker.internal:8180
-      keycloak_realm: example
-      keycloak_client_id_env: DISKARD_KEYCLOAK_CLIENT_ID
-      keycloak_client_secret_env: DISKARD_KEYCLOAK_CLIENT_SECRET

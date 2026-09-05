@@ -8,3 +8,10 @@ tests
 runs
 artifacts
 config/targets.yaml
+config/secrets/
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+work/
+outputs/

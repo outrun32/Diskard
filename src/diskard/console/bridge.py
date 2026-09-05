@@ -71,7 +71,8 @@ def _read_ref(
         raise BridgeError("credential_file must be an absolute mounted secret path")
     if any(part == ".." for part in requested.parts):
         raise BridgeError("credential_file may not contain parent traversal")
-    if not any(requested.is_relative_to(root) for root in secret_roots):
+    requested = requested.resolve()
+    if not any(requested.is_relative_to(root.resolve()) for root in secret_roots):
         raise BridgeError("credential_file must be under /run/secrets or /config/secrets")
     return requested.read_text(encoding="utf-8").strip()
 
@@ -89,6 +90,8 @@ def _suite_status(suite_result: Any) -> str:
             if step.error is not None:
                 return "error"
             for check in step.results:
+                if getattr(check.status, "value", check.status) not in {"pass", "fail"}:
+                    return "error"
                 if getattr(check.status, "value", check.status) == "fail":
                     return "fail"
     return "pass"
@@ -132,8 +135,7 @@ class InvestmentExecutionBridge:
                 "label": "LLM auto-attacker",
                 "available": False,
                 "reason": (
-                    "Use the legacy live endpoint for the existing search driver; "
-                    "durable exact-input search is not yet exposed by the bridge"
+                    "Durable search is not integrated; fixed-input scenarios remain available"
                 ),
             },
         ]
@@ -167,7 +169,7 @@ class InvestmentExecutionBridge:
         )
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(profile.base_url)
+                response = await client.get(profile.base_url + "/health")
             checks.append(
                 {
                     "id": "target_api",
@@ -199,9 +201,14 @@ class InvestmentExecutionBridge:
                     }
                 )
                 continue
-            configured = bool(actor.credential_env and os.getenv(actor.credential_env)) or bool(
-                actor.credential_file
-            )
+            try:
+                configured = bool(
+                    _read_ref(
+                        actor.credential_env, actor.credential_file, secret_roots=self.secret_roots
+                    )
+                )
+            except (OSError, BridgeError):
+                configured = False
             checks.append(
                 {
                     "id": f"actor:{role}",
@@ -319,23 +326,29 @@ class InvestmentExecutionBridge:
                 error="driver unsupported by durable bridge",
             )
         required = {"attacker", "trigger_user"}
-        if run_spec.attack != "cross-user-direct-memory-leak":
+        if run_spec.attack in {"cross-user-global-policy-poisoning", "compaction-policy-poisoning"}:
             required.add("data_subject")
         if run_spec.attack == "delayed-recommendation-manipulation":
             required.add("control")
         actors = self._actors(run_spec.profile, required_roles=required)
-        secret_values = tuple(actor.api_key for actor in actors.values())
+        secret_values = tuple(
+            value
+            for actor in actors.values()
+            for value in (actor.api_key, actor.access_token)
+            if value
+        )
         config = run_spec.profile
         mongo_ref = config.adapter_options.get("mongo_uri_env")
         mongo_uri = os.getenv(str(mongo_ref)) if mongo_ref else None
         if not mongo_uri:
             raise BridgeError("Mongo evidence collector is not configured")
+        secret_values += (mongo_uri,)
         invest_url = str(config.adapter_options.get("invest_url", ""))
-        if not invest_url:
+        if not invest_url and "data_subject" in required:
             raise BridgeError("adapter_options.invest_url is required")
         stand = StandClient(config.base_url)
         mongo = MongoEvidence(mongo_uri=mongo_uri)
-        invest = InvestServerEvidence(base_url=invest_url)
+        invest = InvestServerEvidence(base_url=invest_url or config.base_url)
         semantic = SemanticMemoryEvidence(mongo_uri=mongo_uri)
         actor_by_cus = {actor.cus: actor for actor in actors.values()}
         cleanup_key: str | None = None
@@ -406,16 +419,59 @@ class InvestmentExecutionBridge:
             control_cus=role_cus.get("control", role_cus["trigger_user"]),
         )
         scenario, cleanup_key = _build_scenario(args, wrapped_dispatch, run_spec.run_id)
+        operations = [
+            interaction.inputs for step in scenario.steps for interaction in step.interacts
+        ]
+        saved_inputs = run_spec.resolved_manifest.get("resolved_inputs", {}).get("operations")
+        role_by_cus = {cus: role for role, cus in role_cus.items()}
+        if run_spec.resolved_manifest.get("complete"):
+            if not isinstance(saved_inputs, list) or len(saved_inputs) != len(operations):
+                raise BridgeError("saved operations do not match this scenario build")
+            for operation, saved in zip(operations, saved_inputs, strict=True):
+                if (operation.label, operation.phase, role_by_cus[operation.actor_cus]) != (
+                    saved["label"],
+                    saved["phase"],
+                    saved["actor_role"],
+                ):
+                    raise BridgeError("saved operation topology or actor roles changed")
+                # Retain freshly generated session IDs, but never regenerate payloads.
+                operation.message = saved["message"]
+                operation.auth_mode = saved["auth_mode"]
+        resolved = [
+            {
+                "label": op.label,
+                "phase": op.phase,
+                "actor_role": role_by_cus[op.actor_cus],
+                "message": op.message,
+                "auth_mode": op.auth_mode,
+                "session_slot": op.session_id.replace(run_spec.run_id, "{run_id}")
+                if op.session_id
+                else None,
+            }
+            for op in operations
+        ]
         replay_spec = {
             **run_spec.resolved_manifest,
             "scenario_version": run_spec.attack,
-            "complete": False,
-            "unsupported_reasons": [
-                "current scenario builders generate per-run secrets/session IDs internally",
-                "target state restoration is adapter-dependent and not configured",
-            ],
+            "resolved_inputs": {"operations": resolved},
+            "complete": redact(resolved, secret_values) == resolved,
+            "unsupported_reasons": [],
+            "state_requirements": {
+                "restore": "unsupported",
+                "sessions": "fresh per rerun",
+                "limitation": "exact inputs do not guarantee identical target state or output",
+            },
         }
+        if not replay_spec["complete"]:
+            replay_spec["unsupported_reasons"] = ["input contained credentials and was redacted"]
         try:
+            await emit(
+                EventRecord(
+                    type="replay.resolved",
+                    data=redact(replay_spec, secret_values),
+                    source="console",
+                )
+            )
             await emit(
                 EventRecord(
                     type="run.started",
@@ -432,7 +488,7 @@ class InvestmentExecutionBridge:
             ).run(return_exception=True)
             step = suite_result.results[0].steps[0]
             if step.error is not None:
-                error = step.error.summary()
+                error = str(redact(step.error.summary(), secret_values))
                 await emit(EventRecord(type="run.error", data={"error": error}))
                 return EngineResult(
                     status="failed",
@@ -447,9 +503,9 @@ class InvestmentExecutionBridge:
             summary = {
                 "scenario": scenario.name,
                 "check_status": check_status,
-                "message": check_result.message,
+                "message": redact(check_result.message, secret_values),
                 "details": details,
-                "verdict": "vulnerable" if check_status == "fail" else "clean",
+                "verdict": {"fail": "vulnerable", "pass": "clean"}.get(check_status, "unknown"),
             }
             await emit(
                 EventRecord(
@@ -469,14 +525,19 @@ class InvestmentExecutionBridge:
                     "raw_engine_payload": {"message": check_result.message, "details": details},
                 }
             return EngineResult(
-                status="cancelled" if cancellation.is_set() else "completed",
+                status="cancelled"
+                if cancellation.is_set()
+                else ("completed" if check_status in {"pass", "fail"} else "failed"),
                 raw={
                     "suite_status": _suite_status(suite_result),
                     "check_status": check_status,
-                    "message": check_result.message,
+                    "message": redact(check_result.message, secret_values),
                     "details": details,
                 },
                 summary=summary,
+                error=None
+                if check_status in {"pass", "fail"}
+                else "engine check did not produce a verdict",
                 replay_spec=replay_spec,
                 finding=finding,
                 isolation_status={
@@ -486,11 +547,28 @@ class InvestmentExecutionBridge:
                 },
             )
         finally:
-            if cleanup_key is not None:
-                await asyncio.to_thread(mongo.delete_by_source_session, cleanup_key)
-            await asyncio.to_thread(semantic.delete_by_user, role_cus["attacker"])
-            await stand.aclose()
-            await invest.aclose()
+            # Do not wipe an actor's pre-existing semantic memories. This adapter
+            # currently exposes only user-wide deletion for that collection.
+            try:
+                if cleanup_key is not None:
+                    await emit(EventRecord(type="cleanup.started", data={"session": cleanup_key}))
+                    await asyncio.to_thread(mongo.delete_by_source_session, cleanup_key)
+                await emit(
+                    EventRecord(
+                        type="cleanup.completed",
+                        data={
+                            "policy_session": cleanup_key,
+                            "semantic": "not restored: adapter has no run-scoped delete",
+                        },
+                    )
+                )
+            finally:
+                await stand.aclose()
+                await invest.aclose()
+                for collector in (mongo, semantic):
+                    collection = getattr(collector, "_col", None)
+                    if collection is not None:
+                        collection.database.client.close()
 
     def replay_support(self, saved_run: dict[str, Any]) -> ReplaySupport:
         spec = saved_run.get("replay_spec") or {}
