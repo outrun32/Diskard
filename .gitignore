@@ -36,3 +36,5 @@ examples/recommendation-shift-summary.json
 .DS_Store
 .idea/
 .vscode/
+node_modules/
+*.tsbuildinfo
