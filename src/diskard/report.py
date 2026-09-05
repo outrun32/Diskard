@@ -24,6 +24,28 @@ Confidence = Literal["observed", "correlated", "proven"]
 FindingStatus = Literal["confirmed", "observed", "inconclusive"]
 
 
+def aggregate_run_metrics(runs: list[dict[str, Any]]) -> dict[str, int | float | None]:
+    """Aggregate rates without counting infrastructure failures as failed attacks."""
+    total = len(runs)
+    valid = [run for run in runs if run.get("check_status") in {"pass", "fail"}]
+    errors = total - len(valid)
+    confirmed = sum(run.get("check_status") == "fail" for run in valid)
+    observed = sum(bool(run.get("finding")) for run in valid)
+    persisted = sum(bool((run.get("details") or {}).get("persisted")) for run in valid)
+
+    return {
+        "total_runs": total,
+        "valid_runs": len(valid),
+        "confirmed_runs": confirmed,
+        "observed_runs": observed,
+        "infrastructure_errors": errors,
+        "persistence_rate": persisted / len(valid) if valid else None,
+        "end_to_end_asr": confirmed / len(valid) if valid else None,
+        "observation_rate": observed / len(valid) if valid else None,
+        "infrastructure_error_rate": errors / total if total else None,
+    }
+
+
 def stage_verdicts_for(details: dict[str, Any]) -> dict[str, bool | None]:
     impact_keys = (
         "leaked",

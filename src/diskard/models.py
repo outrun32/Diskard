@@ -17,6 +17,7 @@ class ReplayManifest(BaseModel):
     attack: str
     config_path: str | None = None
     fail_on: str
+    payload: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

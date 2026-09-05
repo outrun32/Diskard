@@ -50,11 +50,21 @@ def test_scan_requires_a_connector_config():
 def test_scan_accepts_llm_agent_driver_without_running_it():
     parser = build_parser()
     args = parser.parse_args(
-        ["scan", "config.yaml", "--driver", "llm-agent", "--max-attempts", "2"]
+        [
+            "scan",
+            "config.yaml",
+            "--driver",
+            "llm-agent",
+            "--max-attempts",
+            "2",
+            "--repeats",
+            "4",
+        ]
     )
 
     assert args.driver == "llm-agent"
     assert args.max_attempts == 2
+    assert args.repeats == 4
 
 
 def test_scan_rejects_zero_attempt_budget():

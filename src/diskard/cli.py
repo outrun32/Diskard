@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the llm-agent attempt budget from the config.",
     )
     scan.add_argument(
+        "--repeats",
+        type=_positive_int,
+        default=None,
+        help="Override the number of independent confirmation runs from the config.",
+    )
+    scan.add_argument(
         "--fail-on",
         choices=["observed", "confirmed", "never"],
         default="confirmed",
@@ -229,7 +235,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     from diskard.config import load_config
     from diskard.connectors import load_connector_factory, make_connector_dispatch
     from diskard.models import ReplayManifest
-    from diskard.report import build_finding, has_security_observation
+    from diskard.report import aggregate_run_metrics, build_finding, has_security_observation
     from diskard.scenarios.cross_user_policy_poisoning import new_run_id
 
     config_path = Path(args.config).resolve()
@@ -301,6 +307,9 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         data_subject_cus=actor_id("data_subject"),
         control_cus=actor_id("control"),
     )
+    replay_payload = getattr(args, "poison_message", None)
+    if replay_payload is not None:
+        scenario_args.poison_message = replay_payload
 
     async def execute_scenario(scenario, namespace: str):
         checkpoint = await isolation.prepare(namespace) if isolation is not None else None
@@ -315,7 +324,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                     raise RuntimeError("post-scenario state differs from the checkpoint")
 
     campaign = None
-    if driver == "llm-agent":
+    if driver == "llm-agent" and replay_payload is None:
         from diskard.attacker import (
             ATTACK_OBJECTIVES,
             AttemptResult,
@@ -394,15 +403,81 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         scenario_args.poison_message = campaign.winning_message or campaign.attempts[-1].message
 
     run_id = new_run_id()
-    scenario, _cleanup_key = _build_scenario(scenario_args, dispatch, run_id)
-
-    suite_result = None
-    execution_error: Exception | None = None
+    repeat_count = args.repeats or config.execution.repeats
+    run_records: list[dict] = []
     started_at = datetime.now(UTC)
     try:
-        suite_result = await execute_scenario(scenario, run_id)
-    except Exception as exc:  # noqa: BLE001 -- converted into infrastructure status below
-        execution_error = exc
+        for repeat_index in range(1, repeat_count + 1):
+            scenario_run_id = f"{run_id}-{repeat_index}"
+            scenario, _cleanup_key = _build_scenario(
+                scenario_args,
+                dispatch,
+                scenario_run_id,
+            )
+            try:
+                suite_result = await execute_scenario(scenario, scenario_run_id)
+                step = suite_result.results[0].steps[0]
+                if step.error is not None:
+                    run_records.append(
+                        {
+                            "index": repeat_index,
+                            "run_id": scenario_run_id,
+                            "scenario": scenario.name,
+                            "check_status": "error",
+                            "message": step.error.summary(),
+                            "details": {},
+                            "finding": None,
+                        }
+                    )
+                    continue
+
+                check_result = step.results[0]
+                confirmed = check_result.status.value == "fail"
+                observed = has_security_observation(check_result.details)
+                finding = None
+                if confirmed or observed:
+                    finding = build_finding(
+                        run_id=scenario_run_id,
+                        scenario=scenario.name,
+                        attack=args.attack,
+                        message=check_result.message or "",
+                        details=check_result.details,
+                        replay=ReplayManifest(
+                            attack=args.attack,
+                            config_path=str(config_path),
+                            fail_on=args.fail_on,
+                            metadata={
+                                "connector": config.connector.name,
+                                "driver": driver,
+                                "max_attempts": args.max_attempts or config.attacker.max_attempts,
+                                "repeats": repeat_count,
+                            },
+                        ),
+                        status="confirmed" if confirmed else "observed",
+                    )
+                run_records.append(
+                    {
+                        "index": repeat_index,
+                        "run_id": scenario_run_id,
+                        "scenario": scenario.name,
+                        "check_status": check_result.status.value,
+                        "message": check_result.message,
+                        "details": check_result.details,
+                        "finding": finding.model_dump() if finding else None,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 -- one failed repeat must not hide others
+                run_records.append(
+                    {
+                        "index": repeat_index,
+                        "run_id": scenario_run_id,
+                        "scenario": scenario.name,
+                        "check_status": "error",
+                        "message": str(exc),
+                        "details": {},
+                        "finding": None,
+                    }
+                )
     finally:
         await connector.aclose()
     completed_at = datetime.now(UTC)
@@ -411,10 +486,12 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         attack=args.attack,
         config_path=str(config_path),
         fail_on=args.fail_on,
+        payload=getattr(scenario_args, "poison_message", None),
         metadata={
             "connector": config.connector.name,
             "driver": driver,
             "max_attempts": args.max_attempts or config.attacker.max_attempts,
+            "repeats": repeat_count,
         },
     )
     run_dir = _run_id_dir(run_id)
@@ -422,7 +499,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     result_path = run_dir / "result.json"
     envelope: dict = {
         "run_id": run_id,
-        "scenario": scenario.name,
+        "scenario": run_records[0]["scenario"] if run_records else args.attack,
         "attack": args.attack,
         "target": config.connector.name,
         "execution_mode": "connector",
@@ -430,64 +507,43 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
         "replay": replay_manifest.model_dump(),
+        "runs": run_records,
+        "metrics": aggregate_run_metrics(run_records),
     }
     if campaign is not None:
         envelope["campaign"] = campaign.to_dict()
 
-    if execution_error is not None or suite_result is None:
-        error = execution_error or RuntimeError("scan produced no result")
-        envelope.update(
-            check_status="error",
-            message=str(error),
-            details={},
-            finding=None,
-        )
-        result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
-        print(f"INFRASTRUCTURE ERROR: {error}")
-        print(f"run recorded at {result_path}")
-        return 3
-
-    step = suite_result.results[0].steps[0]
-    if step.error is not None:
-        envelope.update(
-            check_status="error",
-            message=step.error.summary(),
-            details={},
-            finding=None,
-        )
-        result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
-        print(f"INFRASTRUCTURE ERROR: {step.error.summary()}")
-        print(f"run recorded at {result_path}")
-        return 3
-
-    check_result = step.results[0]
-    confirmed = check_result.status.value == "fail"
-    observed = has_security_observation(check_result.details)
-    finding = None
-    if confirmed or observed:
-        finding = build_finding(
-            run_id=run_id,
-            scenario=scenario.name,
-            attack=args.attack,
-            message=check_result.message or "",
-            details=check_result.details,
-            replay=replay_manifest,
-            status="confirmed" if confirmed else "observed",
-        )
+    metrics = envelope["metrics"]
+    representative = next(
+        (run for run in run_records if run["check_status"] == "fail"),
+        next((run for run in run_records if run["finding"] is not None), run_records[0]),
+    )
+    aggregate_status = (
+        "error"
+        if metrics["infrastructure_errors"]
+        else "fail"
+        if metrics["confirmed_runs"]
+        else "pass"
+    )
     envelope.update(
-        check_status=check_result.status.value,
-        message=check_result.message,
-        details=check_result.details,
-        finding=finding.model_dump() if finding else None,
+        check_status=aggregate_status,
+        message=(
+            f"{metrics['confirmed_runs']}/{metrics['valid_runs']} valid runs reached "
+            f"the terminal goal; persistence rate={metrics['persistence_rate']}"
+        ),
+        details=representative["details"],
+        finding=representative["finding"],
     )
     result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
-    print(check_result.message)
+    print(envelope["message"])
     print(f"run recorded at {result_path}")
+    if metrics["infrastructure_errors"]:
+        return 3
     if args.fail_on == "never":
         return 0
     if args.fail_on == "observed":
-        return 1 if finding is not None else 0
-    return 1 if confirmed else 0
+        return 1 if metrics["observed_runs"] else 0
+    return 1 if metrics["confirmed_runs"] else 0
 
 
 async def _cmd_validate(args: argparse.Namespace) -> int:
@@ -563,8 +619,12 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
     scan_args = argparse.Namespace(
         config=config_path,
         attack=manifest["attack"],
-        driver=(manifest.get("metadata") or {}).get("driver"),
+        driver="deterministic"
+        if manifest.get("payload")
+        else (manifest.get("metadata") or {}).get("driver"),
         max_attempts=(manifest.get("metadata") or {}).get("max_attempts"),
+        repeats=(manifest.get("metadata") or {}).get("repeats"),
+        poison_message=manifest.get("payload"),
         fail_on=manifest["fail_on"],
     )
     print(f"replaying run {args.run_id} through connector config {config_path!r}")

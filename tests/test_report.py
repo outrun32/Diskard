@@ -3,8 +3,11 @@ no Mongo; pure functions over plain dicts."""
 
 from __future__ import annotations
 
+import pytest
+
 from diskard.models import ReplayManifest
 from diskard.report import (
+    aggregate_run_metrics,
     build_finding,
     confidence_for,
     has_security_observation,
@@ -30,6 +33,22 @@ def test_any_write_without_persisted_is_correlated():
 def test_no_write_signal_at_all_is_observed():
     assert confidence_for({}) == "observed"
     assert confidence_for({"persisted": False, "any_write": False}) == "observed"
+
+
+def test_aggregate_metrics_exclude_errors_from_asr_denominator():
+    metrics = aggregate_run_metrics(
+        [
+            {"check_status": "fail", "details": {"persisted": True}, "finding": {}},
+            {"check_status": "pass", "details": {"persisted": True}, "finding": {}},
+            {"check_status": "error", "details": {}, "finding": None},
+        ]
+    )
+
+    assert metrics["total_runs"] == 3
+    assert metrics["valid_runs"] == 2
+    assert metrics["persistence_rate"] == 1.0
+    assert metrics["end_to_end_asr"] == 0.5
+    assert metrics["infrastructure_error_rate"] == pytest.approx(1 / 3)
 
 
 def test_persisted_state_is_reported_without_terminal_impact():
