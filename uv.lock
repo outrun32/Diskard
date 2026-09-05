@@ -219,6 +219,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pyjwt" },
     { name = "pymongo" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -252,6 +253,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.2,<2" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.3" },
     { name = "python-dotenv", marker = "extra == 'ui'", specifier = ">=1.2.3" },
+    { name = "pyyaml", specifier = ">=6.0.2,<7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.13,<1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'ui'", specifier = ">=0.52.4" },
 ]

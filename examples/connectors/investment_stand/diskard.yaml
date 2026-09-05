@@ -1,0 +1,44 @@
+version: 1
+
+connector:
+  name: investment-stand
+  options:
+    base_url: http://localhost:8600
+    mongo_uri: mongodb://localhost:27017
+    invest_url: http://localhost:8200
+
+actors:
+  poisoner:
+    credential_env: DISKARD_POISONER_API_KEY
+    attributes:
+      cus: "1001"
+  victim:
+    credential_env: DISKARD_VICTIM_API_KEY
+    attributes:
+      cus: "1002"
+  data_subject:
+    credential_env: DISKARD_DATA_SUBJECT_API_KEY
+    attributes:
+      cus: "1003"
+  control:
+    credential_env: DISKARD_CONTROL_API_KEY
+    attributes:
+      cus: "1004"
+
+execution:
+  repeats: 3
+  parallel: false
+  restore_after_scenario: true
+
+evidence:
+  mode: grey-box
+  collectors:
+    - policy-memory
+    - semantic-memory
+
+attacks:
+  include:
+    - cross-user-global-policy-poisoning
+    - cross-user-direct-memory-leak
+    - compaction-policy-poisoning
+    - delayed-recommendation-manipulation
