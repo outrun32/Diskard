@@ -40,8 +40,6 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import uuid4
 
-import httpx
-
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -272,44 +270,133 @@ class AttackCampaign:
         }
 
 
-class AttackerLLM:
-    """Thin OpenAI-compatible client for the red-team model, not the target."""
+class PayloadProposer(Protocol):
+    async def propose(
+        self,
+        system_prompt: str,
+        params: dict[str, str],
+        history: list[AttemptResult],
+    ) -> tuple[str, str]: ...
+
+
+AttemptExecutor = Callable[[int, str, str], Awaitable[AttemptResult]]
+
+
+async def run_agentic_search(
+    *,
+    objective: AttackObjective,
+    params: dict[str, str],
+    attacker: PayloadProposer,
+    execute_attempt: AttemptExecutor,
+    max_attempts: int,
+    on_attempt: Callable[[AttemptResult], Awaitable[None]] | None = None,
+) -> AttackCampaign:
+    """Search for a persisting payload through a caller-owned lifecycle runner."""
+    campaign = AttackCampaign(params=params)
+    for index in range(1, max_attempts + 1):
+        message, idea = await attacker.propose(objective.system_prompt, params, campaign.attempts)
+        attempt = await execute_attempt(index, message, idea)
+        campaign.attempts.append(attempt)
+        if on_attempt is not None:
+            await on_attempt(attempt)
+        if attempt.persisted:
+            campaign.winning_index = index
+            break
+    return campaign
+
+
+class GiskardAttacker:
+    """Red-team model accessed through the Giskard Generator interface."""
 
     def __init__(
         self,
+        generator: Any | None = None,
+        provider: str | None = None,
+        provider_name: str = "diskard-attacker",
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        api_version: str | None = None,
     ) -> None:
-        self._api_key = api_key or os.environ["OPENAI_API_KEY"]
-        self._base_url = (
-            base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        ).rstrip("/")
-        self._model = model or os.environ.get("ATTACKER_MODEL", "openai/gpt-4o-mini")
-        self._client = httpx.AsyncClient(timeout=60.0)
+        if generator is not None:
+            self._generator = generator
+            return
+
+        from urllib.parse import urlsplit, urlunsplit
+
+        from giskard.agents import Generator
+        from giskard.llm import configure
+
+        provider = provider or os.environ.get("ATTACKER_PROVIDER", "openai")
+        api_key = api_key or os.environ.get("ATTACKER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("attacker provider API key is not configured")
+        base_url = (
+            base_url or os.environ.get("ATTACKER_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+        )
+        model = model or os.environ.get("ATTACKER_MODEL", "gpt-4o-mini")
+        if "/" in model:
+            _model_provider, model = model.split("/", maxsplit=1)
+
+        if provider == "azure_ai" and base_url:
+            parsed = urlsplit(base_url)
+            base_url = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+            api_version = api_version or os.environ.get("ATTACKER_API_VERSION")
+            if api_version:
+                os.environ["AZURE_AI_API_VERSION"] = api_version
+
+        provider_options: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            provider_options["base_url"] = base_url
+        configure(provider_name, provider=provider, **provider_options)
+        self._generator = Generator(model=f"{provider_name}/{model}")
 
     async def propose(
         self, system_prompt: str, params: dict[str, str], history: list[AttemptResult]
     ) -> tuple[str, str]:
-        resp = await self._client.post(
-            f"{self._base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
-                "model": self._model,
-                "messages": [
-                    {"role": "system", "content": system_prompt.format(**params)},
-                    {"role": "user", "content": _build_user_prompt(params, history)},
-                ],
-                "temperature": 0.9,
-                "max_tokens": 500,
-            },
+        from giskard.agents.generators import GenerationParams
+
+        response = await self._generator.complete(
+            [
+                {"role": "system", "content": system_prompt.format(**params)},
+                {"role": "user", "content": _build_user_prompt(params, history)},
+            ],
+            params=GenerationParams(temperature=0.9, max_tokens=500),
         )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+        content = response.choices[0].message.content
+        if not isinstance(content, str):
+            raise TypeError("attacker model returned non-text content")
         return _extract_message(content)
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        return None
+
+    @classmethod
+    def from_config(cls, config: Any) -> GiskardAttacker:
+        provider = config.provider
+        if provider is None:
+            raise ValueError("llm-agent driver requires an attacker provider")
+
+        api_key = os.environ.get(provider.api_key_env)
+        if not api_key:
+            raise ValueError(
+                f"missing attacker API key environment variable {provider.api_key_env}"
+            )
+        base_url = os.environ.get(provider.base_url_env) if provider.base_url_env else None
+        api_version = os.environ.get(provider.api_version_env) if provider.api_version_env else None
+        return cls(
+            provider=provider.type,
+            provider_name=provider.name,
+            api_key=api_key,
+            base_url=base_url,
+            model=provider.model,
+            api_version=api_version,
+        )
+
+
+# Compatibility alias for the existing example console. New code should use
+# the explicit name so the Giskard dependency is visible at the call site.
+AttackerLLM = GiskardAttacker
 
 
 def _build_user_prompt(params: dict[str, str], history: list[AttemptResult]) -> str:

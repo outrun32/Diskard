@@ -73,6 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which scenario to run -- see `diskard list attacks`.",
     )
     scan.add_argument(
+        "--driver",
+        choices=["deterministic", "llm-agent"],
+        default=None,
+        help="Payload driver. Defaults to the value in the connector config.",
+    )
+    scan.add_argument(
         "--fail-on",
         choices=["observed", "confirmed", "never"],
         default="confirmed",
@@ -216,6 +222,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     config_path = Path(args.config).resolve()
     base_dir = config_path.parent
     config = load_config(config_path)
+    driver = args.driver or config.attacker.driver
     if args.attack not in config.attacks.include:
         print(f"attack {args.attack!r} is not enabled in {config_path}")
         return 2
@@ -244,6 +251,13 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         )
         isolation = isolation_factory(config.isolation.options)
 
+    try:
+        await connector.healthcheck()
+    except Exception as exc:  # noqa: BLE001 -- converted to the CLI infrastructure code
+        await connector.aclose()
+        print(f"[FAIL] connector healthcheck failed: {exc}")
+        return 3
+
     required_roles = {"poisoner", "victim", "data_subject", "control"}
     missing_roles = required_roles - set(config.actors)
     if missing_roles:
@@ -267,7 +281,6 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         actors=actors,
     )
 
-    run_id = new_run_id()
     scenario_args = SimpleNamespace(
         attack=args.attack,
         poisoner_cus=actor_id("poisoner"),
@@ -275,28 +288,106 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         data_subject_cus=actor_id("data_subject"),
         control_cus=actor_id("control"),
     )
+
+    async def execute_scenario(scenario, namespace: str):
+        checkpoint = await isolation.prepare(namespace) if isolation is not None else None
+        try:
+            return await Suite(name="diskard-config-scan", scenarios=[scenario]).run(
+                return_exception=True
+            )
+        finally:
+            if isolation is not None and checkpoint is not None:
+                await isolation.restore(checkpoint)
+                if not await isolation.verify(checkpoint):
+                    raise RuntimeError("post-scenario state differs from the checkpoint")
+
+    campaign = None
+    if driver == "llm-agent":
+        from diskard.attacker import (
+            ATTACK_OBJECTIVES,
+            AttemptResult,
+            GiskardAttacker,
+            run_agentic_search,
+        )
+
+        objective = ATTACK_OBJECTIVES.get(args.attack)
+        if objective is None:
+            await connector.aclose()
+            print(f"attack {args.attack!r} does not support the llm-agent driver")
+            return 2
+
+        if args.attack == "delayed-recommendation-manipulation":
+            from diskard.checks.recommendation_shift import (
+                TARGET_ISIN,
+                TARGET_NAME,
+                TARGET_TICKER,
+            )
+
+            attacker_params = {
+                "target_ticker": TARGET_TICKER,
+                "target_isin": TARGET_ISIN,
+                "target_name": TARGET_NAME,
+            }
+        else:
+            attacker_params = {"data_subject_cus": scenario_args.data_subject_cus}
+
+        try:
+            attacker = GiskardAttacker.from_config(config.attacker)
+        except Exception as exc:  # noqa: BLE001 -- provider config is a CLI error
+            await connector.aclose()
+            print(f"[FAIL] attacker configuration failed: {exc}")
+            return 3
+
+        async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+            attempt_id = f"{new_run_id()}-search-{index}"
+            attempt_args = SimpleNamespace(**vars(scenario_args), poison_message=message)
+            attempt_scenario, _ = _build_scenario(attempt_args, dispatch, attempt_id)
+            attempt_result = await execute_scenario(attempt_scenario, attempt_id)
+            step = attempt_result.results[0].steps[0]
+            if step.error is not None:
+                raise RuntimeError(step.error.summary())
+            details = step.results[0].details
+            return AttemptResult(
+                index=index,
+                message=message,
+                idea=idea,
+                facts=details.get("semantic_facts", []),
+                new_records=details.get("new_policy_records", []),
+                concrete_records=details.get("concrete_policy_records", []),
+                persisted=bool(details.get("persisted")),
+                reply=details.get("vulnerable_reply") or details.get("victim_reply") or "",
+                session_id=attempt_id,
+            )
+
+        try:
+            campaign = await run_agentic_search(
+                objective=objective,
+                params=attacker_params,
+                attacker=attacker,
+                execute_attempt=execute_attempt,
+                max_attempts=config.attacker.max_attempts,
+            )
+        finally:
+            await attacker.aclose()
+
+        if not campaign.attempts:
+            await connector.aclose()
+            print("LLM attacker produced no attempts")
+            return 3
+        scenario_args.poison_message = campaign.winning_message or campaign.attempts[-1].message
+
+    run_id = new_run_id()
     scenario, _cleanup_key = _build_scenario(scenario_args, dispatch, run_id)
-    checkpoint = await isolation.prepare(run_id) if isolation is not None else None
 
     suite_result = None
     execution_error: Exception | None = None
     cleanup_error: Exception | None = None
     started_at = datetime.now(UTC)
     try:
-        await connector.healthcheck()
-        suite_result = await Suite(name="diskard-config-scan", scenarios=[scenario]).run(
-            return_exception=True
-        )
+        suite_result = await execute_scenario(scenario, run_id)
     except Exception as exc:  # noqa: BLE001 -- converted into infrastructure status below
         execution_error = exc
     finally:
-        if isolation is not None and checkpoint is not None:
-            try:
-                await isolation.restore(checkpoint)
-                if not await isolation.verify(checkpoint):
-                    raise RuntimeError("post-scenario state differs from the checkpoint")
-            except Exception as exc:  # noqa: BLE001 -- cleanup failures invalidate the run
-                cleanup_error = exc
         await connector.aclose()
     completed_at = datetime.now(UTC)
 
@@ -304,7 +395,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         attack=args.attack,
         config_path=str(config_path),
         fail_on=args.fail_on,
-        metadata={"connector": config.connector.name},
+        metadata={"connector": config.connector.name, "driver": driver},
     )
     run_dir = _run_id_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -315,10 +406,13 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         "attack": args.attack,
         "target": config.connector.name,
         "execution_mode": "connector",
+        "driver": driver,
         "started_at": started_at.isoformat(),
         "completed_at": completed_at.isoformat(),
         "replay": replay_manifest.model_dump(),
     }
+    if campaign is not None:
+        envelope["campaign"] = campaign.to_dict()
 
     if execution_error is not None or cleanup_error is not None or suite_result is None:
         error = cleanup_error or execution_error or RuntimeError("scan produced no result")
@@ -449,6 +543,7 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
     scan_args = argparse.Namespace(
         config=config_path,
         attack=manifest["attack"],
+        driver=(manifest.get("metadata") or {}).get("driver"),
         fail_on=manifest["fail_on"],
     )
     print(f"replaying run {args.run_id} through connector config {config_path!r}")

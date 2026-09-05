@@ -55,3 +55,14 @@ attacks:
     - cross-user-direct-memory-leak
     - compaction-policy-poisoning
     - delayed-recommendation-manipulation
+
+attacker:
+  driver: deterministic
+  max_attempts: 6
+  provider:
+    name: deepseek-red-team
+    type: azure_ai
+    model: DeepSeek-V4-Flash
+    api_key_env: AZURE_OPENAI_API_KEY
+    base_url_env: AZURE_OPENAI_ENDPOINT
+    api_version_env: AZURE_OPENAI_API_VERSION

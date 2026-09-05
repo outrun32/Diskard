@@ -71,6 +71,31 @@ class AttackConfig(BaseModel):
     include: list[str] = Field(min_length=1)
 
 
+class AttackerProviderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "diskard-attacker"
+    type: str = "openai"
+    model: str
+    api_key_env: str
+    base_url_env: str | None = None
+    api_version_env: str | None = None
+
+
+class AttackerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    driver: Literal["deterministic", "llm-agent"] = "deterministic"
+    max_attempts: int = Field(default=6, ge=1)
+    provider: AttackerProviderConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> AttackerConfig:
+        if self.driver == "llm-agent" and self.provider is None:
+            raise ValueError("llm-agent driver requires an attacker provider")
+        return self
+
+
 class DiskardConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,6 +107,7 @@ class DiskardConfig(BaseModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     evidence: EvidenceConfig = Field(default_factory=EvidenceConfig)
     attacks: AttackConfig
+    attacker: AttackerConfig = Field(default_factory=AttackerConfig)
 
     @model_validator(mode="after")
     def validate_execution(self) -> DiskardConfig:

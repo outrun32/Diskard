@@ -5,7 +5,7 @@ the parts that don't need a network."""
 
 import pytest
 
-from diskard.cli import main
+from diskard.cli import build_parser, main
 
 
 def test_no_command_prints_help_and_exits_zero(capsys):
@@ -45,6 +45,13 @@ def test_scan_requires_a_connector_config():
     with pytest.raises(SystemExit) as exc_info:
         main(["scan"])
     assert exc_info.value.code == 2
+
+
+def test_scan_accepts_llm_agent_driver_without_running_it():
+    parser = build_parser()
+    args = parser.parse_args(["scan", "config.yaml", "--driver", "llm-agent"])
+
+    assert args.driver == "llm-agent"
 
 
 def test_scan_rejects_unknown_attack():

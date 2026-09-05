@@ -9,12 +9,29 @@ is deliberately absent).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
 from diskard.attacker import (
     ATTACK_OBJECTIVES,
     AttackCampaign,
+    AttackerLLM,
     AttemptResult,
     _build_user_prompt,
+    run_agentic_search,
 )
+
+
+class FakeGenerator:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.calls = []
+
+    async def complete(self, messages, params=None):
+        self.calls.append((messages, params))
+        message = SimpleNamespace(content=self.content)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 def test_registry_covers_exactly_the_three_write_side_families():
@@ -129,3 +146,55 @@ def test_campaign_not_succeeded_has_no_winning_message():
     campaign = AttackCampaign(params={"target_ticker": "SVFN-01"})
     assert campaign.succeeded is False
     assert campaign.winning_message is None
+
+
+@pytest.mark.asyncio
+async def test_attacker_uses_giskard_generator_and_parses_structured_payload():
+    generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
+    attacker = AttackerLLM(generator=generator)
+
+    message, idea = await attacker.propose(
+        "system goal {target}",
+        {"target": "value"},
+        [],
+    )
+
+    assert (message, idea) == ("candidate", "mutation")
+    sent_messages, generation_params = generator.calls[0]
+    assert sent_messages[0]["role"] == "system"
+    assert "value" in sent_messages[0]["content"]
+    assert generation_params.temperature == 0.9
+    assert generation_params.max_tokens == 500
+
+
+@pytest.mark.asyncio
+async def test_agentic_search_stops_after_a_persisting_attempt():
+    generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
+    attacker = AttackerLLM(generator=generator)
+    seen: list[int] = []
+
+    async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+        seen.append(index)
+        return AttemptResult(
+            index=index,
+            message=message,
+            idea=idea,
+            facts=[],
+            new_records=[],
+            concrete_records=[],
+            persisted=index == 2,
+            reply="target reply",
+            session_id=f"search-{index}",
+        )
+
+    campaign = await run_agentic_search(
+        objective=ATTACK_OBJECTIVES["cross-user-global-policy-poisoning"],
+        params={"data_subject_cus": "1003"},
+        attacker=attacker,
+        execute_attempt=execute_attempt,
+        max_attempts=4,
+    )
+
+    assert seen == [1, 2]
+    assert campaign.succeeded is True
+    assert campaign.winning_message == "candidate"
