@@ -94,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
         "validate",
         help="Pre-flight: check target/Mongo/identity reachability, run no attack.",
     )
+    validate.add_argument(
+        "config",
+        nargs="?",
+        help="Connector-driven YAML config. Omit it to use the legacy stand flags.",
+    )
     validate.add_argument("--poisoner-cus", default="1001")
     validate.add_argument("--victim-cus", default="1002")
     validate.add_argument("--data-subject-cus", default="1003")
@@ -325,6 +330,30 @@ async def _run_scan(args: argparse.Namespace) -> int:
 
 
 async def _cmd_validate(args: argparse.Namespace) -> int:
+    if args.config:
+        from diskard.config import load_config
+        from diskard.connectors import load_connector_factory
+
+        connector = None
+        try:
+            config = load_config(args.config)
+            factory = load_connector_factory(
+                config.connector.factory,
+                base_dir=Path(args.config).resolve().parent,
+            )
+            connector = factory(config.connector.options)
+            await connector.healthcheck()
+            print(f"[ok]   config parsed: {args.config}")
+            print(f"[ok]   connector {config.connector.name!r} is reachable")
+            print(f"[ok]   actors declared: {len(config.actors)}")
+            return 0
+        except Exception as exc:  # noqa: BLE001 -- CLI validation reports config/plugin errors
+            print(f"[FAIL] connector config validation failed: {exc}")
+            return 3
+        finally:
+            if connector is not None:
+                await connector.aclose()
+
     import httpx
     from pymongo import MongoClient
     from pymongo.errors import PyMongoError

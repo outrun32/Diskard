@@ -15,6 +15,7 @@ class ConnectorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    factory: str
     options: dict[str, JsonValue] = Field(default_factory=dict)
 
 

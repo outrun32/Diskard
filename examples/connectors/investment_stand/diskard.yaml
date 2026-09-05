@@ -2,10 +2,9 @@ version: 1
 
 connector:
   name: investment-stand
+  factory: ./connector.py:create_connector
   options:
     base_url: http://localhost:8600
-    mongo_uri: mongodb://localhost:27017
-    invest_url: http://localhost:8200
 
 actors:
   poisoner:

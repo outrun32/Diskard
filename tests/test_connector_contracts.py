@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,8 +17,12 @@ from diskard.connectors import (
     TargetConnector,
     UnknownActorError,
     UnsupportedOperationError,
+    load_connector_factory,
     make_connector_dispatch,
 )
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 
 class FakeConnector:
@@ -107,6 +113,16 @@ def test_registry_rejects_duplicates_and_lists_connectors():
 
     with pytest.raises(KeyError, match="unknown connector"):
         registry.create("missing")
+
+
+def test_factory_loader_imports_the_example_connector():
+    factory = load_connector_factory(
+        "./connector.py:create_connector",
+        base_dir=ROOT / "examples/connectors/investment_stand",
+    )
+    connector = factory({"base_url": "http://target.test"})
+
+    assert connector.name == "investment-stand"
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,7 @@ from diskard.connectors.dispatch import (
     UnsupportedOperationError,
     make_connector_dispatch,
 )
-from diskard.connectors.registry import ConnectorRegistry
+from diskard.connectors.registry import ConnectorRegistry, load_connector_factory
 
 __all__ = [
     "ActorRef",
@@ -38,4 +38,5 @@ __all__ = [
     "UnknownActorError",
     "UnsupportedOperationError",
     "make_connector_dispatch",
+    "load_connector_factory",
 ]

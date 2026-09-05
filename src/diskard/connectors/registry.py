@@ -3,11 +3,42 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from importlib import import_module
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
 from typing import Any
 
 from diskard.connectors.base import TargetConnector
 
 type ConnectorFactory = Callable[[Mapping[str, Any]], TargetConnector]
+
+
+def load_connector_factory(
+    reference: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> ConnectorFactory:
+    """Load a trusted local factory from ``module:attribute`` or ``file.py:attribute``."""
+    location, separator, attribute = reference.rpartition(":")
+    if not separator or not location or not attribute:
+        raise ValueError("connector factory must use the form 'module:attribute'")
+
+    if location.endswith(".py") or "/" in location or "\\" in location:
+        path = Path(location)
+        if not path.is_absolute() and base_dir is not None:
+            path = Path(base_dir) / path
+        path = path.resolve()
+        spec = spec_from_file_location(f"diskard_connector_{path.stem}", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load connector module from {path}")
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = import_module(location)
+    factory = getattr(module, attribute, None)
+    if not callable(factory):
+        raise TypeError(f"connector factory {reference!r} is not callable")
+    return factory
 
 
 class ConnectorRegistry:

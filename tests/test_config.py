@@ -12,6 +12,7 @@ def test_example_connector_config_parses_without_resolving_secrets():
     config = load_config(ROOT / "examples/connectors/investment_stand/diskard.yaml")
 
     assert config.connector.name == "investment-stand"
+    assert config.connector.factory.endswith(":create_connector")
     assert config.execution.repeats == 3
     assert set(config.actor_refs()) == {"poisoner", "victim", "data_subject", "control"}
     serialized = config.model_dump_json()
@@ -24,7 +25,11 @@ def test_unknown_config_fields_are_rejected():
         DiskardConfig.model_validate(
             {
                 "version": 1,
-                "connector": {"name": "fake", "unknown": True},
+                "connector": {
+                    "name": "fake",
+                    "factory": "tests.fake:create_connector",
+                    "unknown": True,
+                },
                 "actors": {"user": {"credential_env": "TOKEN"}},
                 "attacks": {"include": ["memory-test"]},
             }
@@ -36,7 +41,7 @@ def test_parallel_restore_requires_a_validated_isolation_strategy():
         DiskardConfig.model_validate(
             {
                 "version": 1,
-                "connector": {"name": "fake"},
+                "connector": {"name": "fake", "factory": "tests.fake:create_connector"},
                 "actors": {"user": {"credential_env": "TOKEN"}},
                 "execution": {"parallel": True, "restore_after_scenario": True},
                 "attacks": {"include": ["memory-test"]},

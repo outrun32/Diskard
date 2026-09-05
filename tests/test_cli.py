@@ -62,6 +62,11 @@ def test_validate_help_does_not_touch_the_network():
     assert exc_info.value.code == 0
 
 
+def test_validate_accepts_a_connector_config_path():
+    parser_result = main(["validate", "missing-config.yaml"])
+    assert parser_result == 3
+
+
 def test_report_help_does_not_touch_the_network():
     with pytest.raises(SystemExit) as exc_info:
         main(["report", "--help"])
