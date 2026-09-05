@@ -5,7 +5,8 @@ export type ExecutionStatus =
   | "completed"
   | "failed"
   | "cancelled"
-  | "interrupted";
+  | "interrupted"
+  | "unknown";
 
 export type SecurityOutcome = "vulnerable" | "clean" | "unknown" | "error" | "not_applicable";
 export type RunMode = "live" | "recorded" | "playback";
@@ -44,6 +45,7 @@ export interface TraceEvent {
   status?: "started" | "running" | "completed" | "failed" | "observed";
   durationMs?: number;
   content?: string;
+  response?: string;
   detail?: string;
   memory?: MemoryChange;
   evidenceIds?: string[];
@@ -56,6 +58,7 @@ export interface ReplaySupport {
   rerun: boolean;
   completeness: "complete" | "partial" | "unsupported";
   reason?: string;
+  label?: string;
 }
 
 export interface RunConfig {
@@ -103,6 +106,8 @@ export interface RunDetail extends RunSummary {
   resultSummary?: string;
   evidenceCount?: number;
   raw?: unknown;
+  engineResult?: unknown;
+  findings?: unknown;
 }
 
 export interface EventPage {
@@ -138,3 +143,27 @@ export interface SetupStatus {
   evidence: "ready" | "missing" | "unknown";
   attackerProvider: "ready" | "missing" | "unknown";
 }
+
+
+export interface ProfileInput {
+  schema_version: number;
+  id: string;
+  name: string;
+  adapter: string;
+  base_url: string;
+  actors: Record<string, { cus: string; credential_env?: string; credential_file?: string; access_token_env?: string; access_token_file?: string; attributes?: Record<string, string> }>;
+  lifecycle: Record<string, unknown>;
+  adapter_options: Record<string, unknown>;
+}
+export interface Profile {
+  id: string; name: string; adapter: string; version: number;
+  config: ProfileInput;
+  actor_status: Record<string, { cus?: string; configured: boolean; credential_refs: Record<string,string> }>;
+}
+export interface ReadinessCheck { id: string; label: string; status: string; reason?: string; detail?: string }
+export interface Readiness { ready?: boolean; checks: ReadinessCheck[] }
+export interface Setup extends Readiness { storage_ready: boolean; executor_owned: boolean; startup_error?: string; secret_instructions?: string; limitations: string[] }
+export interface CatalogItem { id: string; label?: string; available: boolean; reason?: string; requirements?: string[] }
+export interface Catalog { attacks: CatalogItem[]; drivers: CatalogItem[]; limitations: string[] }
+export interface RunInput { profile_id: string; attack: string; driver: string; budget: number; repeat: number; submission_id: string }
+export interface RunPage { items: RunSummary[]; total: number; offset: number; limit: number }
