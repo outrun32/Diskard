@@ -32,5 +32,6 @@ class Finding(BaseModel):
     status: Literal["confirmed", "observed", "inconclusive"]
     confidence: Literal["observed", "correlated", "proven"]
     message: str
+    stage_verdicts: dict[str, bool | None] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)
     replay: ReplayManifest

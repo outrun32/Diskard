@@ -4,7 +4,13 @@ no Mongo; pure functions over plain dicts."""
 from __future__ import annotations
 
 from diskard.models import ReplayManifest
-from diskard.report import build_finding, confidence_for, render_markdown
+from diskard.report import (
+    build_finding,
+    confidence_for,
+    has_security_observation,
+    render_markdown,
+    stage_verdicts_for,
+)
 
 _REPLAY = ReplayManifest(
     attack="cross-user-global-policy-poisoning",
@@ -26,6 +32,19 @@ def test_no_write_signal_at_all_is_observed():
     assert confidence_for({"persisted": False, "any_write": False}) == "observed"
 
 
+def test_persisted_state_is_reported_without_terminal_impact():
+    details = {"any_write": True, "persisted": True, "leaked": False}
+
+    assert has_security_observation(details) is True
+    assert stage_verdicts_for(details) == {
+        "D0_delivered": True,
+        "W1_write_accepted": True,
+        "W2_persisted": True,
+        "E3_externalized": False,
+        "P1_cross_identity": False,
+    }
+
+
 def test_build_finding_wires_confidence_and_replay():
     finding = build_finding(
         run_id="abc12345",
@@ -40,6 +59,23 @@ def test_build_finding_wires_confidence_and_replay():
     assert finding.status == "confirmed"
     assert finding.confidence == "proven"
     assert finding.replay.attack == "cross-user-global-policy-poisoning"
+
+
+def test_build_finding_can_record_an_observed_partial_attack():
+    finding = build_finding(
+        run_id="partial123",
+        scenario="memory-write-partial123",
+        attack="memory-write",
+        message="Payload persisted without terminal impact.",
+        details={"persisted": True, "leaked": False},
+        replay=_REPLAY,
+        status="observed",
+    )
+
+    assert finding.status == "observed"
+    assert finding.confidence == "proven"
+    assert finding.stage_verdicts["W2_persisted"] is True
+    assert finding.stage_verdicts["E3_externalized"] is False
 
 
 def test_render_markdown_with_finding_includes_replay_command():

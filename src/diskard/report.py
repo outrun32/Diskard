@@ -21,6 +21,36 @@ from typing import Any, Literal
 from diskard.models import Finding, ReplayManifest
 
 Confidence = Literal["observed", "correlated", "proven"]
+FindingStatus = Literal["confirmed", "observed", "inconclusive"]
+
+
+def stage_verdicts_for(details: dict[str, Any]) -> dict[str, bool | None]:
+    impact_keys = (
+        "leaked",
+        "leaked_in_vulnerable_mode",
+        "leaked_in_protected_mode",
+        "shifted_in_vulnerable_mode",
+        "shifted_in_protected_mode",
+    )
+    impact_values = [details[key] for key in impact_keys if key in details]
+    externalized = any(impact_values) if impact_values else None
+    persisted = details.get("persisted")
+    write_accepted = details.get("any_write", persisted)
+    return {
+        "D0_delivered": True,
+        "W1_write_accepted": write_accepted,
+        "W2_persisted": persisted,
+        "E3_externalized": externalized,
+        "P1_cross_identity": externalized,
+    }
+
+
+def has_security_observation(details: dict[str, Any]) -> bool:
+    stages = stage_verdicts_for(details)
+    return any(
+        stages[name] is True
+        for name in ("W1_write_accepted", "W2_persisted", "E3_externalized", "P1_cross_identity")
+    )
 
 
 def confidence_for(details: dict[str, Any]) -> Confidence:
@@ -39,15 +69,17 @@ def build_finding(
     message: str,
     details: dict[str, Any],
     replay: ReplayManifest,
+    status: FindingStatus = "confirmed",
 ) -> Finding:
     return Finding(
         id=run_id,
         run_id=run_id,
         scenario=scenario,
         attack=attack,
-        status="confirmed",
+        status=status,
         confidence=confidence_for(details),
         message=message,
+        stage_verdicts=stage_verdicts_for(details),
         details=details,
         replay=replay,
     )
@@ -82,7 +114,11 @@ def render_markdown(
             f"- confidence: **{finding.confidence}**",
             f"- replay: `diskard replay {run_id}`",
             "",
+            "### Stage verdicts",
+            "",
         ]
+        lines += [f"- {name}: `{value}`" for name, value in finding.stage_verdicts.items()]
+        lines.append("")
     else:
         lines += ["No finding on this run -- check passed.", ""]
     return "\n".join(lines)

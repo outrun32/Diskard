@@ -76,9 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-on",
         choices=["observed", "confirmed", "never"],
         default="confirmed",
-        help="Which verdicts make the exit code non-zero. Only 'confirmed' "
-        "findings exist today -- 'observed'/'confirmed' behave the same "
-        "until a check without Mongo access exists (see report.py).",
+        help="Which verdicts make the exit code non-zero.",
     )
 
     validate = subparsers.add_parser(
@@ -212,7 +210,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     from diskard.config import load_config
     from diskard.connectors import load_connector_factory, make_connector_dispatch
     from diskard.models import ReplayManifest
-    from diskard.report import build_finding
+    from diskard.report import build_finding, has_security_observation
     from diskard.scenarios.cross_user_policy_poisoning import new_run_id
 
     config_path = Path(args.config).resolve()
@@ -350,8 +348,9 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
 
     check_result = step.results[0]
     confirmed = check_result.status.value == "fail"
+    observed = has_security_observation(check_result.details)
     finding = None
-    if confirmed:
+    if confirmed or observed:
         finding = build_finding(
             run_id=run_id,
             scenario=scenario.name,
@@ -359,6 +358,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
             message=check_result.message or "",
             details=check_result.details,
             replay=replay_manifest,
+            status="confirmed" if confirmed else "observed",
         )
     envelope.update(
         check_status=check_result.status.value,
@@ -371,6 +371,8 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     print(f"run recorded at {result_path}")
     if args.fail_on == "never":
         return 0
+    if args.fail_on == "observed":
+        return 1 if finding is not None else 0
     return 1 if confirmed else 0
 
 
