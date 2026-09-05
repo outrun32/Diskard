@@ -1,0 +1,28 @@
+schema_version: 1
+targets:
+  - id: investment-local
+    name: Investment demo
+    adapter: investment-stand
+    base_url: http://host.docker.internal:8600
+    lifecycle: {}
+    actors:
+      attacker:
+        cus: "1001"
+        credential_env: DISKARD_ATTACKER_TARGET_KEY
+      trigger_user:
+        cus: "1002"
+        credential_env: DISKARD_TRIGGER_TARGET_KEY
+      data_subject:
+        cus: "1003"
+        credential_env: DISKARD_SUBJECT_TARGET_KEY
+        access_token_env: DISKARD_SUBJECT_TARGET_TOKEN
+      control:
+        cus: "1004"
+        credential_env: DISKARD_CONTROL_TARGET_KEY
+    adapter_options:
+      invest_url: http://host.docker.internal:8200
+      mongo_uri_env: DISKARD_TARGET_MONGO_URI
+      keycloak_url: http://host.docker.internal:8180
+      keycloak_realm: example
+      keycloak_client_id_env: DISKARD_KEYCLOAK_CLIENT_ID
+      keycloak_client_secret_env: DISKARD_KEYCLOAK_CLIENT_SECRET

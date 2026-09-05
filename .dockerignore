@@ -1,0 +1,10 @@
+.env
+.venv
+.git
+.gitignore
+__pycache__
+*.pyc
+tests
+runs
+artifacts
+config/targets.yaml
