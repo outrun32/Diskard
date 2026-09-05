@@ -48,8 +48,7 @@ KNOWN_ATTACKS = {
     ),
 }
 KNOWN_ADAPTERS = {
-    "investment-stand": "diskard.adapters.investment_stand.StandClient "
-    "(genai-invest-agent-memory-stand, OpenAI-compatible chat+finalize)",
+    "config": "External connectors loaded from a local diskard.yaml file.",
 }
 
 
@@ -65,8 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan = subparsers.add_parser("scan", help="Run one scenario against a live target.")
     scan.add_argument(
         "config",
-        nargs="?",
-        help="Connector-driven YAML config. Omit it to use the legacy stand flags.",
+        help="Connector-driven YAML config.",
     )
     scan.add_argument(
         "--attack",
@@ -74,18 +72,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="cross-user-global-policy-poisoning",
         help="Which scenario to run -- see `diskard list attacks`.",
     )
-    scan.add_argument("--poisoner-cus", default="1001")
-    scan.add_argument("--victim-cus", default="1002")
-    scan.add_argument("--data-subject-cus", default="1003")
-    scan.add_argument(
-        "--control-cus",
-        default="1004",
-        help="Fourth identity, only used by delayed-recommendation-manipulation -- "
-        "asks the trigger question before any poisoning to establish a baseline.",
-    )
-    scan.add_argument("--stand-url", default="http://localhost:8600")
-    scan.add_argument("--mongo-uri", default="mongodb://localhost:27017")
-    scan.add_argument("--invest-url", default="http://localhost:8200")
     scan.add_argument(
         "--fail-on",
         choices=["observed", "confirmed", "never"],
@@ -101,16 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate.add_argument(
         "config",
-        nargs="?",
-        help="Connector-driven YAML config. Omit it to use the legacy stand flags.",
+        help="Connector-driven YAML config.",
     )
-    validate.add_argument("--poisoner-cus", default="1001")
-    validate.add_argument("--victim-cus", default="1002")
-    validate.add_argument("--data-subject-cus", default="1003")
-    validate.add_argument("--control-cus", default="1004")
-    validate.add_argument("--stand-url", default="http://localhost:8600")
-    validate.add_argument("--mongo-uri", default="mongodb://localhost:27017")
-    validate.add_argument("--invest-url", default="http://localhost:8200")
 
     report = subparsers.add_parser("report", help="Render a markdown report for a past run.")
     report.add_argument("run_id")
@@ -119,10 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
         "replay", help="Re-run the attack from a past run's manifest, as a fresh trial."
     )
     replay.add_argument("run_id")
-    replay.add_argument("--stand-url", default=None, help="Override the manifest's stand URL.")
-    replay.add_argument("--mongo-uri", default=None, help="Override the manifest's Mongo URI.")
     replay.add_argument(
-        "--invest-url", default=None, help="Override the manifest's invest-server URL."
+        "--config",
+        default=None,
+        help="Override the connector config stored in the replay manifest.",
     )
 
     list_parser = subparsers.add_parser("list", help="List available attacks/adapters.")
@@ -217,126 +195,7 @@ def _build_scenario(args: argparse.Namespace, dispatch, run_id: str):
 
 
 async def _run_scan(args: argparse.Namespace) -> int:
-    if getattr(args, "config", None):
-        return await _run_config_scan(args)
-
-    from datetime import UTC, datetime
-
-    from giskard.checks import Suite
-
-    from diskard.adapters.investment_stand import (
-        InvestServerEvidence,
-        MongoEvidence,
-        SemanticMemoryEvidence,
-        StandClient,
-    )
-    from diskard.identities import bootstrap_identities, refresh_access_token
-    from diskard.models import ReplayManifest
-    from diskard.report import build_finding
-    from diskard.runner import make_dispatch
-    from diskard.scenarios.cross_user_policy_poisoning import new_run_id
-
-    runs_dir = Path.cwd() / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = runs_dir / ".identities.json"
-    identities = await bootstrap_identities(
-        [args.poisoner_cus, args.victim_cus, args.data_subject_cus, args.control_cus],
-        cache_path,
-    )
-    await refresh_access_token(identities, args.data_subject_cus)
-
-    stand = StandClient(base_url=args.stand_url)
-    mongo = MongoEvidence(mongo_uri=args.mongo_uri)
-    invest = InvestServerEvidence(base_url=args.invest_url)
-    semantic = SemanticMemoryEvidence(mongo_uri=args.mongo_uri)
-    dispatch = make_dispatch(
-        stand=stand, mongo=mongo, invest=invest, identities=identities, semantic=semantic
-    )
-
-    run_id = new_run_id()
-    scenario, cleanup_key = _build_scenario(args, dispatch, run_id)
-    replay_manifest = ReplayManifest(
-        attack=args.attack,
-        config_path=None,
-        poisoner_cus=args.poisoner_cus,
-        victim_cus=args.victim_cus,
-        data_subject_cus=args.data_subject_cus,
-        control_cus=args.control_cus,
-        stand_url=args.stand_url,
-        mongo_uri=args.mongo_uri,
-        invest_url=args.invest_url,
-        fail_on=args.fail_on,
-    )
-
-    print(f"running {scenario.name!r} against {args.stand_url} ...")
-    started_at = datetime.now(UTC)
-    try:
-        suite_result = await Suite(name="diskard-cli-scan", scenarios=[scenario]).run(
-            return_exception=True
-        )
-    finally:
-        deleted_policy = mongo.delete_by_source_session(cleanup_key)
-        deleted_semantic = semantic.delete_by_user(args.poisoner_cus)
-        if deleted_policy:
-            print(f"cleanup: removed {deleted_policy} policy record(s) written by this run")
-        if deleted_semantic:
-            print(f"cleanup: removed {deleted_semantic} semantic fact(s) written by this run")
-        await stand.aclose()
-        await invest.aclose()
-    completed_at = datetime.now(UTC)
-
-    run_dir = _run_id_dir(run_id)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    result_path = run_dir / "result.json"
-    envelope: dict = {
-        "run_id": run_id,
-        "scenario": scenario.name,
-        "attack": args.attack,
-        "target": args.stand_url,
-        "execution_mode": "legacy",
-        "started_at": started_at.isoformat(),
-        "completed_at": completed_at.isoformat(),
-        "replay": replay_manifest.model_dump(),
-    }
-
-    step = suite_result.results[0].steps[0]
-    if step.error is not None:
-        envelope["check_status"] = "error"
-        envelope["message"] = step.error.summary()
-        envelope["details"] = {}
-        envelope["finding"] = None
-        result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
-        print(f"INFRASTRUCTURE ERROR: {step.error.summary()}")
-        print(f"run recorded at {result_path} (replayable with `diskard replay {run_id}`)")
-        return 3
-
-    check_result = step.results[0]
-    confirmed = check_result.status.value == "fail"
-    finding = None
-    if confirmed:
-        finding = build_finding(
-            run_id=run_id,
-            scenario=scenario.name,
-            attack=args.attack,
-            message=check_result.message or "",
-            details=check_result.details,
-            replay=replay_manifest,
-        )
-
-    envelope["check_status"] = check_result.status.value
-    envelope["message"] = check_result.message
-    envelope["details"] = check_result.details
-    envelope["finding"] = finding.model_dump() if finding else None
-    result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
-
-    print(check_result.message)
-    print(f"run recorded at {result_path}")
-    if finding is not None:
-        print(f"finding confidence={finding.confidence} -- report: diskard report {run_id}")
-
-    if args.fail_on == "never":
-        return 0
-    return 1 if confirmed else 0
+    return await _run_config_scan(args)
 
 
 async def _run_config_scan(args: argparse.Namespace) -> int:
@@ -522,68 +381,29 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
 
 
 async def _cmd_validate(args: argparse.Namespace) -> int:
-    if args.config:
-        from diskard.config import load_config
-        from diskard.connectors import load_connector_factory
+    from diskard.config import load_config
+    from diskard.connectors import load_connector_factory
 
-        connector = None
-        try:
-            config = load_config(args.config)
-            factory = load_connector_factory(
-                config.connector.factory,
-                base_dir=Path(args.config).resolve().parent,
-            )
-            connector = factory(config.connector.options)
-            await connector.healthcheck()
-            print(f"[ok]   config parsed: {args.config}")
-            print(f"[ok]   connector {config.connector.name!r} is reachable")
-            print(f"[ok]   actors declared: {len(config.actors)}")
-            return 0
-        except Exception as exc:  # noqa: BLE001 -- CLI validation reports config/plugin errors
-            print(f"[FAIL] connector config validation failed: {exc}")
-            return 3
-        finally:
-            if connector is not None:
-                await connector.aclose()
-
-    import httpx
-    from pymongo import MongoClient
-    from pymongo.errors import PyMongoError
-
-    from diskard.identities import bootstrap_identities
-
-    ok = True
-
+    connector = None
     try:
-        MongoClient(args.mongo_uri, serverSelectionTimeoutMS=3000).admin.command("ping")
-        print(f"[ok]   mongo reachable at {args.mongo_uri}")
-    except PyMongoError as exc:
-        ok = False
-        print(f"[FAIL] mongo unreachable at {args.mongo_uri}: {exc}")
-
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for label, base_url in [("stand", args.stand_url), ("invest-server", args.invest_url)]:
-            try:
-                resp = await client.get(f"{base_url.rstrip('/')}/healthz")
-                print(f"[ok]   {label} reachable at {base_url} (status={resp.status_code})")
-            except httpx.HTTPError as exc:
-                ok = False
-                print(f"[FAIL] {label} unreachable at {base_url}: {exc}")
-
-    runs_dir = Path.cwd() / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = runs_dir / ".identities.json"
-    try:
-        await bootstrap_identities(
-            [args.poisoner_cus, args.victim_cus, args.data_subject_cus, args.control_cus],
-            cache_path,
+        config_path = Path(args.config).resolve()
+        config = load_config(config_path)
+        factory = load_connector_factory(
+            config.connector.factory,
+            base_dir=config_path.parent,
         )
-        print("[ok]   identity bootstrap (keycloak) succeeded for all four actors")
-    except Exception as exc:  # noqa: BLE001 -- surface any bootstrap failure as a validate result
-        ok = False
-        print(f"[FAIL] identity bootstrap failed: {exc}")
-
-    return 0 if ok else 3
+        connector = factory(config.connector.options)
+        await connector.healthcheck()
+        print(f"[ok]   config parsed: {args.config}")
+        print(f"[ok]   connector {config.connector.name!r} is reachable")
+        print(f"[ok]   actors declared: {len(config.actors)}")
+        return 0
+    except Exception as exc:  # noqa: BLE001 -- CLI validation reports config/plugin errors
+        print(f"[FAIL] connector config validation failed: {exc}")
+        return 3
+    finally:
+        if connector is not None:
+            await connector.aclose()
 
 
 def _load_run(run_id: str) -> dict | None:
@@ -626,31 +446,16 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
         return 2
 
     manifest = envelope["replay"]
-    if manifest.get("config_path"):
-        scan_args = argparse.Namespace(
-            config=manifest["config_path"],
-            attack=manifest["attack"],
-            fail_on=manifest["fail_on"],
-        )
-        print(f"replaying run {args.run_id} through connector config {manifest['config_path']!r}")
-        return await _run_scan(scan_args)
-
+    config_path = args.config or manifest.get("config_path")
+    if not config_path:
+        print("this legacy run has no connector config and cannot be replayed")
+        return 2
     scan_args = argparse.Namespace(
-        config=None,
+        config=config_path,
         attack=manifest["attack"],
-        poisoner_cus=manifest["poisoner_cus"],
-        victim_cus=manifest["victim_cus"],
-        data_subject_cus=manifest["data_subject_cus"],
-        control_cus=manifest["control_cus"],
-        stand_url=args.stand_url or manifest["stand_url"],
-        mongo_uri=args.mongo_uri or manifest["mongo_uri"],
-        invest_url=args.invest_url or manifest["invest_url"],
         fail_on=manifest["fail_on"],
     )
-    print(
-        f"replaying run {args.run_id} as a fresh trial: attack={scan_args.attack!r} "
-        "(not a byte-identical rerun -- the target's own LLM calls are stochastic)"
-    )
+    print(f"replaying run {args.run_id} through connector config {config_path!r}")
     return await _run_scan(scan_args)
 
 

@@ -89,14 +89,15 @@ uv sync --extra dev --extra ui
 Check that the target and test identities are reachable:
 
 ```bash
-uv run diskard validate
+uv run diskard validate examples/connectors/investment_stand/diskard.yaml
 ```
 
 List and run attacks:
 
 ```bash
 uv run diskard list attacks
-uv run diskard scan --attack cross-user-global-policy-poisoning
+uv run diskard scan examples/connectors/investment_stand/diskard.yaml \
+  --attack cross-user-global-policy-poisoning
 ```
 
 Every scan records a run manifest. Confirmed findings can be rendered and a run can be repeated:

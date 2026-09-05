@@ -20,7 +20,7 @@ def test_list_attacks(capsys):
 
 def test_list_adapters(capsys):
     assert main(["list", "adapters"]) == 0
-    assert "investment-stand" in capsys.readouterr().out
+    assert "diskard.yaml" in capsys.readouterr().out
 
 
 def test_list_without_a_target_is_a_usage_error():
@@ -39,6 +39,12 @@ def test_scan_help_does_not_touch_the_network():
     with pytest.raises(SystemExit) as exc_info:
         main(["scan", "--help"])
     assert exc_info.value.code == 0
+
+
+def test_scan_requires_a_connector_config():
+    with pytest.raises(SystemExit) as exc_info:
+        main(["scan"])
+    assert exc_info.value.code == 2
 
 
 def test_scan_rejects_unknown_attack():
