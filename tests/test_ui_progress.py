@@ -114,9 +114,7 @@ async def test_wrapped_dispatch_calls_on_finalize_only_for_finalize_phase_and_at
 
     await wrapped(Operation(phase="chat", label="poison_chat", actor_cus="1001", message="x"), None)
     await wrapped(
-        Operation(
-            phase="finalize", label="poison_finalize", actor_cus="1001", session_id="s1"
-        ),
+        Operation(phase="finalize", label="poison_finalize", actor_cus="1001", session_id="s1"),
         None,
     )
 

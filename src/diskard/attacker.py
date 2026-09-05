@@ -368,9 +368,7 @@ async def run_auto_attack(
                 semantic.delete_by_user(poisoner.cus)
 
         new_records = MongoEvidence.new_records(baseline, after)
-        concrete_records = [
-            r for r in new_records if objective.success_predicate(r, params)
-        ]
+        concrete_records = [r for r in new_records if objective.success_predicate(r, params)]
 
         attempt = AttemptResult(
             index=i,

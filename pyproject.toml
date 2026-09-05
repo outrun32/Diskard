@@ -30,6 +30,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "fastapi>=0.141.1",
+  "python-dotenv>=1.2.3",
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.2,<2",
   "ruff>=0.13,<1",

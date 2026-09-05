@@ -175,7 +175,7 @@ class Ctx:
     mongo: MongoEvidence
     invest: InvestServerEvidence
     semantic: SemanticMemoryEvidence
-    attacker: AttackerLLM
+    attacker: AttackerLLM | None
     identities: dict[str, Actor]
 
 
@@ -210,15 +210,29 @@ async def lifespan(app: FastAPI):
     ctx.mongo = MongoEvidence()
     ctx.invest = InvestServerEvidence()
     ctx.semantic = SemanticMemoryEvidence()
-    ctx.attacker = AttackerLLM()
-    ctx.identities = await _bootstrap_identities()
+    ctx.attacker = AttackerLLM() if os.environ.get("OPENAI_API_KEY") else None
+    ctx.identities = {}
     yield
     await ctx.stand.aclose()
     await ctx.invest.aclose()
-    await ctx.attacker.aclose()
+    if ctx.attacker is not None:
+        await ctx.attacker.aclose()
 
 
 app = FastAPI(title="Diskard console", lifespan=lifespan)
+
+
+async def _ensure_identities() -> dict[str, Actor]:
+    """Bootstrap identities only when a job needs the live stand."""
+    if not ctx.identities:
+        ctx.identities = await _bootstrap_identities()
+    return ctx.identities
+
+
+def _require_attacker() -> AttackerLLM:
+    if ctx.attacker is None:
+        raise RuntimeError("LLM auto-attacker requires OPENAI_API_KEY")
+    return ctx.attacker
 
 
 def _new_job(kind: str) -> Job:
@@ -246,6 +260,7 @@ async def _run_job(job: Job, coro_factory: Callable[[Job], Awaitable[dict]]) -> 
 
 
 async def _repeats_body(job: Job, n: int) -> dict:
+    await _ensure_identities()
     from giskard.checks import Suite
 
     kc = KeycloakBootstrap()
@@ -341,6 +356,8 @@ async def _repeats_body(job: Job, n: int) -> dict:
 
 
 async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
+    await _ensure_identities()
+    attacker = _require_attacker()
     kc = KeycloakBootstrap()
     ctx.identities[DATA_SUBJECT_CUS].access_token = await kc.get_user_access_token(DATA_SUBJECT_CUS)
 
@@ -357,7 +374,7 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
         params={"data_subject_cus": DATA_SUBJECT_CUS},
         stand=ctx.stand,
         mongo=ctx.mongo,
-        attacker=ctx.attacker,
+        attacker=attacker,
         max_attempts=max_attempts,
         on_attempt=on_attempt,
         semantic=ctx.semantic,
@@ -440,6 +457,8 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     attack-family dispatch the CLI uses) and checks/*.py's own verdicts via
     report.confidence_for, wrapping dispatch so the frontend can watch the
     conversation stream in instead of only seeing the result at the end."""
+    await _ensure_identities()
+
     from giskard.checks import Suite
 
     from diskard.identities import refresh_access_token
@@ -479,9 +498,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     def _on_step(step: dict) -> None:
         job.emit_step({**step, "attack": attack})
 
-    dispatch = wrap_dispatch_with_progress(
-        base_dispatch, _on_step, on_finalize=_check_memory_event
-    )
+    dispatch = wrap_dispatch_with_progress(base_dispatch, _on_step, on_finalize=_check_memory_event)
 
     args = SimpleNamespace(
         attack=attack,
@@ -492,6 +509,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     )
 
     if driver == "llm-auto-attacker":
+        attacker = _require_attacker()
         if attack == "delayed-recommendation-manipulation":
             attacker_params = {
                 "target_ticker": TARGET_TICKER,
@@ -511,7 +529,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
             params=attacker_params,
             stand=ctx.stand,
             mongo=ctx.mongo,
-            attacker=ctx.attacker,
+            attacker=attacker,
             max_attempts=6,
             on_attempt=_on_attempt,
             semantic=ctx.semantic,
@@ -639,6 +657,8 @@ async def start_repeats(req: RepeatsRequest):
 
 @app.post("/api/jobs/auto-attack")
 async def start_auto_attack(req: AutoAttackRequest):
+    if ctx.attacker is None:
+        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
     job = _new_job("auto-attack")
     import asyncio
 
@@ -683,6 +703,8 @@ async def start_live(req: LiveStartRequest):
             f"only supports {sorted(AUTO_ATTACK_CAPABLE)} (cross-user-direct-memory-leak "
             "is a negative control on a different, correctly-scoped memory collection)",
         )
+    if req.driver == "llm-auto-attacker" and ctx.attacker is None:
+        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
     job = _new_job("live")
     import asyncio
 

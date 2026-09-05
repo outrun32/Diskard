@@ -306,8 +306,11 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
 
     run_id = new_run_id()
     base_dispatch = make_dispatch(
-        stand=ctx.stand, mongo=ctx.mongo, invest=ctx.invest,
-        identities=ctx.identities, semantic=ctx.semantic,
+        stand=ctx.stand,
+        mongo=ctx.mongo,
+        invest=ctx.invest,
+        identities=ctx.identities,
+        semantic=ctx.semantic,
     )
     dispatch = wrap_dispatch_with_progress(base_dispatch, job.emit_step)
 
@@ -382,8 +385,7 @@ class LiveStartRequest(BaseModel):
 @app.get("/api/live/attacks")
 def list_live_attacks():
     return [
-        {"name": name, "auto_attack_capable": name in AUTO_ATTACK_CAPABLE}
-        for name in KNOWN_ATTACKS
+        {"name": name, "auto_attack_capable": name in AUTO_ATTACK_CAPABLE} for name in KNOWN_ATTACKS
     ]
 
 
