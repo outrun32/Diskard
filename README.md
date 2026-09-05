@@ -1,72 +1,122 @@
 # Diskard
 
-An open-source toolkit for security testing of AI agents.
+Diskard is an open-source security test runner for AI agents that keep memory, call tools, and act across multiple sessions.
 
-Diskard provides a Python foundation for describing adversarial scenarios, running them against agentic applications, and evaluating the resulting behavior. It is designed for systems that use tools, retain state, or operate across multiple interactions.
-
-The project builds on [Giskard](https://github.com/Giskard-AI/giskard) and extends its scenario model for agent-focused security research. Diskard remains a separate package rather than a fork.
-
-The name is a play on *discard*: a security finding may be the reason to stop a deployment before it reaches production.
-
-## Project status
-
-Diskard is pre-alpha. The package structure, development workflow and CI are in place; public APIs may change as the first working scanners are introduced.
-
-## Design
-
-Diskard follows a few practical rules:
-
-| Principle | Meaning |
-|---|---|
-| Scenario-based | A test may span several interactions instead of one prompt and response |
-| Adapter-driven | Targets expose a small interface regardless of their internal framework |
-| Evidence-aware | Evaluations may use outputs, traces, tool events or application state |
-| Reproducible | Runs preserve configuration, results and enough context for replay |
-| Automation-friendly | Findings can be consumed by scripts, CI systems and security platforms |
-
-The toolkit is intended to support deterministic tests and LLM-assisted exploration without giving the attacking model control over credentials, identities or test isolation.
-
-## Package model
+Most model scanners evaluate one visible exchange:
 
 ```text
-Diskard
-├── scenarios
-├── attack generators
-├── target adapters
-├── evidence collectors
-├── checks and metrics
-└── reports
-        │
-        └── Giskard Scenario / Interaction / Trace / Check
+prompt → response
 ```
 
-Integrations are expected to live behind small interfaces. A target may be a local agent, an HTTP service, a test environment or a custom callable.
+An agent can fail without producing an obviously harmful response. A payload may be stored during one session, retrieved later for another user, alter a tool argument, or change application state. Diskard tests that longer path:
+
+```text
+input
+→ working context
+→ persistent memory
+→ later session or identity
+→ planning and tool use
+→ observable impact
+```
+
+The name is a play on *discard*: a confirmed finding may be enough to stop a deployment.
+
+## How Diskard relates to Giskard
+
+Diskard builds on the public APIs in [Giskard v3](https://github.com/Giskard-AI/giskard). It is a separate package, not a fork.
+
+Giskard supplies the execution model: `Scenario`, `Interaction`, `Trace`, `Check`, `Suite`, metrics, and result export. Its standard scans remain useful for prompt injection, harmful output, policy compliance, and other response-level tests.
+
+Diskard adds the stateful security layer that an agent test needs:
+
+| Giskard primitive | Diskard extension |
+|---|---|
+| Scenario and interaction | Explicit delivery, commit, trigger, observation, and cleanup phases |
+| Target callable | Adapters with actor, credential, session, and lifecycle control |
+| Trace | Evidence from responses, memory, tools, logs, and state changes |
+| Check | Deterministic lifecycle oracles and stage-level verdicts |
+| Suite | Stateful campaigns with isolation, repeats, replay, and ASR accounting |
+
+The attacking model never controls credentials, identities, authorization mode, privileged endpoints, or cleanup. Those stay in the deterministic control plane.
+
+## Current capabilities
+
+The pre-alpha release includes an adapter for the GenAI Investment Assistant reference target and four memory-focused scenarios:
+
+- cross-user global-policy poisoning;
+- direct cross-user memory leakage;
+- compaction-time policy poisoning;
+- delayed recommendation manipulation.
+
+Diskard can drive chat and finalization under separate identities, inspect memory changes, compare vulnerable and protected execution, emit JSON findings, render Markdown reports, and replay a previous run as a fresh trial. An experimental LLM attacker can adapt payload wording after each failed persistence attempt.
+
+The current adapter uses grey-box evidence from the reference target's MongoDB and invest-server. Generic adapter contracts, black-box fallback, complete state restoration, and broader tool tracing are still under development.
 
 ## Installation
 
-Diskard is not published to PyPI yet. Install it from source:
+Diskard requires Python 3.12 or newer and is not published to PyPI yet.
 
 ```bash
 git clone https://github.com/outrun32/Diskard.git
 cd Diskard
-uv sync
+uv sync --extra dev
 uv run diskard --version
 ```
 
-Diskard requires Python 3.12 or newer.
+Install the optional local console dependencies with:
+
+```bash
+uv sync --extra dev --extra ui
+```
+
+## CLI
+
+Check that the target and test identities are reachable:
+
+```bash
+uv run diskard validate
+```
+
+List and run attacks:
+
+```bash
+uv run diskard list attacks
+uv run diskard scan --attack cross-user-global-policy-poisoning
+```
+
+Every scan records a run manifest. Confirmed findings can be rendered and a run can be repeated:
+
+```bash
+uv run diskard report RUN_ID
+uv run diskard replay RUN_ID
+```
+
+Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
+
+## Package model
+
+```text
+Diskard control plane
+├── attack families and payload generators
+├── target, identity, and lifecycle adapters
+├── state isolation and evidence collectors
+├── deterministic and semantic oracles
+└── findings, metrics, reports, and replay
+        │
+        └── Giskard Scenario / Interaction / Trace / Check / Suite
+```
 
 ## Development
 
-Install development dependencies and run the local checks:
-
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra ui
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
+uv build
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Security issues should follow the process in [SECURITY.md](./SECURITY.md).
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Report security issues through [SECURITY.md](./SECURITY.md).
 
 ## License
 
