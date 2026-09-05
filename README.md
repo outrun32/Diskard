@@ -89,14 +89,14 @@ uv sync --extra dev --extra ui --extra investment-stand
 Check that the target and test identities are reachable:
 
 ```bash
-uv run diskard validate examples/connectors/investment_stand/diskard.yaml
+uv run diskard validate path/to/diskard.yaml
 ```
 
 List and run attacks:
 
 ```bash
 uv run diskard list attacks
-uv run diskard scan examples/connectors/investment_stand/diskard.yaml \
+uv run diskard scan path/to/diskard.yaml \
   --attack cross-user-global-policy-poisoning
 ```
 
