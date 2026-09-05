@@ -8,12 +8,6 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from diskard.adapters.investment_stand import (
-    InvestServerEvidence,
-    MongoEvidence,
-    SemanticMemoryEvidence,
-)
-from diskard.adapters.keycloak import KeycloakBootstrap
 from diskard.connectors import (
     ActorRef,
     ConnectorCapabilities,
@@ -22,6 +16,13 @@ from diskard.connectors import (
     IsolationCheckpoint,
     ResolvedIdentity,
 )
+
+try:
+    from .backend import InvestServerEvidence, MongoEvidence, SemanticMemoryEvidence
+    from .identity import KeycloakBootstrap
+except ImportError:  # Loaded directly from a config-relative file path.
+    from backend import InvestServerEvidence, MongoEvidence, SemanticMemoryEvidence
+    from identity import KeycloakBootstrap
 
 
 class InvestmentStandConnector:

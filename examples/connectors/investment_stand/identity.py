@@ -1,4 +1,4 @@
-"""Headless identity bootstrap for the investment stand.
+"""Headless identity bootstrap for the investment-stand connector example.
 
 Not part of the attack itself: this is setup tooling a red-team operator runs
 once, with real credentials for the test identities, to obtain the same

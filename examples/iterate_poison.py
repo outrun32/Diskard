@@ -9,14 +9,16 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-from diskard.adapters.investment_stand import (  # noqa: E402
+from diskard.models import Actor  # noqa: E402
+from examples.connectors.investment_stand.backend import (  # noqa: E402
     MongoEvidence,
     SemanticMemoryEvidence,
     StandClient,
 )
-from diskard.models import Actor  # noqa: E402
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
 POISONER_CUS = "1001"

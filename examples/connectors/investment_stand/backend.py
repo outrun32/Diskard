@@ -1,4 +1,4 @@
-"""Adapter for the GenAI Investment Assistant stand
+"""Backend clients for the investment-stand connector example
 (https://github.com/m-melgizin/genai-invest-agent-memory-stand).
 
 Talks to the stand's own OpenAI-compatible surface only (`/v1/chat/completions`,

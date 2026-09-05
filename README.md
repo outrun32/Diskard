@@ -81,7 +81,7 @@ uv run diskard --version
 Install the optional local console dependencies with:
 
 ```bash
-uv sync --extra dev --extra ui
+uv sync --extra dev --extra ui --extra investment-stand
 ```
 
 ## CLI

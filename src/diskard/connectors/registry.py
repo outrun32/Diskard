@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from importlib import import_module
 from importlib.util import module_from_spec, spec_from_file_location
@@ -32,7 +33,11 @@ def load_connector_factory(
         if spec is None or spec.loader is None:
             raise ImportError(f"cannot load connector module from {path}")
         module = module_from_spec(spec)
-        spec.loader.exec_module(module)
+        sys.path.insert(0, str(path.parent))
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.path.remove(str(path.parent))
     else:
         module = import_module(location)
     factory = getattr(module, attribute, None)

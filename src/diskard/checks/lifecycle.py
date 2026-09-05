@@ -13,7 +13,7 @@ from typing import Any
 
 from giskard.checks import CheckResult, Metric
 
-from diskard.adapters.investment_stand import MongoEvidence
+from diskard.checks.evidence import new_records_by_key
 from diskard.models import Operation
 
 
@@ -51,7 +51,7 @@ async def cross_user_policy_poisoning_check(trace: Any) -> CheckResult:
 
     baseline_policy = baseline_ix.outputs["policy"]
     after_policy = after_ix.outputs["policy"]
-    new_records = MongoEvidence.new_records(baseline_policy, after_policy)
+    new_records = new_records_by_key(baseline_policy, after_policy, key="policy_id")
     data_subject_cus = canary_ix.inputs.actor_cus
 
     # W1/W2 per docs/agentic-red-teaming-analysis.md section 4.1: a write happening

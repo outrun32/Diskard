@@ -70,10 +70,9 @@ def build_cross_user_policy_poisoning_scenario(
     run_id: str | None = None,
     poison_message: str | None = None,
 ) -> Scenario:
-    """Build the P0 lifecycle scenario. `dispatch` is the target adapter
-    entry point (see `diskard.runner.make_dispatch`); kept as a parameter so
-    the scenario stays adapter-agnostic even though only one adapter exists
-    today. `poison_message`, if given, replaces `POISON_MESSAGE_TEMPLATE` --
+    """Build the P0 lifecycle scenario. `dispatch` is the target connector
+    entry point; keeping it as a parameter leaves the scenario independent
+    from connector implementation. `poison_message`, if given, replaces `POISON_MESSAGE_TEMPLATE` --
     used to confirm a wording found by `diskard.attacker` end-to-end through
     the same formal scenario/oracle as the hand-tuned default.
 

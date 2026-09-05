@@ -24,8 +24,6 @@ dependencies = [
   "giskard-checks==1.0.3",
   "giskard-scan==1.0.0",
   "httpx>=0.28,<1",
-  "pyjwt>=2.13.0",
-  "pymongo>=4.17.0",
   "pyyaml>=6.0.2,<7",
 ]
 
@@ -46,6 +44,7 @@ ui = [
     "uvicorn[standard]>=0.52.4",
 ]
 investment-stand = [
+  "pymongo>=4.17.0",
   "redis>=5,<8",
 ]
 

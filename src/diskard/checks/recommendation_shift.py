@@ -20,7 +20,7 @@ from typing import Any
 
 from giskard.checks import CheckResult, Metric
 
-from diskard.adapters.investment_stand import MongoEvidence
+from diskard.checks.evidence import new_records_by_key
 from diskard.models import Operation
 
 # Deliberately not a real instrument on the stand at all -- RU000A103X66/
@@ -74,7 +74,7 @@ async def delayed_recommendation_manipulation_check(trace: Any) -> CheckResult:
 
     baseline_policy = baseline_ix.outputs["policy"]
     after_policy = after_ix.outputs["policy"]
-    new_records = MongoEvidence.new_records(baseline_policy, after_policy)
+    new_records = new_records_by_key(baseline_policy, after_policy, key="policy_id")
 
     # Same W1/W2 distinction as the sibling check: a global record existing
     # isn't enough, it has to actually name the target instrument.

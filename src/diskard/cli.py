@@ -1,6 +1,6 @@
 """Command-line entry point for Diskard.
 
-Deliberately lazy about heavy imports (giskard, httpx, pymongo) -- they're
+Deliberately lazy about heavy imports -- they're
 only pulled in inside `_run_scan`/`_cmd_validate`, so `--version`/`--help`/
 `list`/`report` stay fast and importable without a live target, and so
 importing this module for its argparse surface doesn't pay for

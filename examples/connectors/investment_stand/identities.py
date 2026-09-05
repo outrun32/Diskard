@@ -12,8 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from diskard.adapters.keycloak import KeycloakBootstrap
 from diskard.models import Actor
+from examples.connectors.investment_stand.identity import KeycloakBootstrap
 
 
 async def bootstrap_identities(cus_list: list[str], cache_path: Path) -> dict[str, Actor]:

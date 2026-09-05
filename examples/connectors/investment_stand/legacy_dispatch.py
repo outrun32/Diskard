@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from diskard.adapters.investment_stand import (
+from diskard.models import Actor, Operation
+from examples.connectors.investment_stand.backend import (
     InvestServerEvidence,
     MongoEvidence,
     SemanticMemoryEvidence,
     StandClient,
 )
-from diskard.models import Actor, Operation
 
 
 def make_dispatch(

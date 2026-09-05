@@ -14,22 +14,24 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-from diskard.adapters.investment_stand import (  # noqa: E402
-    InvestServerEvidence,
-    MongoEvidence,
-    SemanticMemoryEvidence,
-    StandClient,
-)
-from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
 from diskard.models import Actor  # noqa: E402
-from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
     new_run_id,
     poison_session_id,
 )
+from examples.connectors.investment_stand.backend import (  # noqa: E402
+    InvestServerEvidence,
+    MongoEvidence,
+    SemanticMemoryEvidence,
+    StandClient,
+)
+from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
+from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
 

@@ -1,4 +1,4 @@
-from diskard.adapters.investment_stand import MongoEvidence
+from examples.connectors.investment_stand.backend import MongoEvidence
 
 
 def test_new_records_detects_added_policy_id():

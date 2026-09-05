@@ -35,14 +35,8 @@ load_dotenv(ROOT / ".env")
 import sys  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
-from diskard.adapters.investment_stand import (  # noqa: E402
-    InvestServerEvidence,
-    MongoEvidence,
-    SemanticMemoryEvidence,
-    StandClient,
-)
-from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
 from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
 from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_ISIN,
@@ -52,11 +46,19 @@ from diskard.checks.recommendation_shift import (  # noqa: E402
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
 from diskard.models import Actor, Operation  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
-from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
     poison_session_id,
 )
+from examples.connectors.investment_stand.backend import (  # noqa: E402
+    InvestServerEvidence,
+    MongoEvidence,
+    SemanticMemoryEvidence,
+    StandClient,
+)
+from examples.connectors.investment_stand.identities import refresh_access_token  # noqa: E402
+from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
+from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
 
 
 def _classify_risk(op: Operation) -> str:
@@ -461,7 +463,6 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
 
     from giskard.checks import Suite
 
-    from diskard.identities import refresh_access_token
     from diskard.scenarios.cross_user_policy_poisoning import new_run_id
 
     await refresh_access_token(ctx.identities, DATA_SUBJECT_CUS)
