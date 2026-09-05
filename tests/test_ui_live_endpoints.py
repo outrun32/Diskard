@@ -19,7 +19,7 @@ def _client():
     # matches how the rest of this repo keeps CLI imports lazy in cli.py.
     from fastapi.testclient import TestClient
 
-    from ui.server import app
+    from examples.connectors.investment_stand.ui.server import app
 
     return TestClient(app)
 
@@ -87,7 +87,7 @@ def test_live_job_detail_exposes_kind_for_audit_scorecard_routing():
     # against the stand, which this file deliberately never exercises (see
     # module docstring). This only checks the response shape the frontend's
     # poll() branches on to pick renderAuditScorecard vs renderVerdict.
-    from ui.server import JOBS, Job
+    from examples.connectors.investment_stand.ui.server import JOBS, Job
 
     job = Job(id="test-audit-kind", kind="audit", status="done", result={"n_total": 4})
     JOBS[job.id] = job

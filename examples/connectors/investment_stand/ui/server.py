@@ -4,8 +4,8 @@ browse past findings. Not part of the installable `diskard` package --
 a thin FastAPI wrapper around the same adapters/scenarios/attacker code the
 CLI examples use, for demoing/using it without a terminal.
 
-Usage:
-    uv run uvicorn ui.server:app --port 8700 --app-dir .
+Usage from the repository root:
+    uv run uvicorn examples.connectors.investment_stand.ui.server:app --port 8700
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[4]
 EXAMPLES_DIR = ROOT / "examples"
 IDENTITIES_CACHE = EXAMPLES_DIR / ".identities.json"
 
@@ -49,7 +49,6 @@ from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_TICKER,
 )
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
-from diskard.models import Actor, Operation  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
@@ -64,6 +63,7 @@ from examples.connectors.investment_stand.backend import (  # noqa: E402
 from examples.connectors.investment_stand.identities import refresh_access_token  # noqa: E402
 from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
+from examples.connectors.investment_stand.models import Actor  # noqa: E402
 
 
 def _classify_risk(op: Any) -> str:
@@ -482,7 +482,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         semantic=ctx.semantic,
     )
 
-    async def _check_memory_event(op: Operation) -> dict:
+    async def _check_memory_event(op: Any) -> dict:
         """Runs right after a finalize op completes -- reads Mongo directly
         (same grey-box evidence the oracle itself trusts, not the chat
         reply) to report, live, whether this specific session's finalize

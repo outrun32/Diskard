@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from diskard.checks.cross_user_direct_leak import cross_user_direct_leak_check
-from diskard.models import Operation
+from diskard.scenarios.operations import operation
 
 SECRET = "Зирокс-ABC123"
 
@@ -25,8 +25,8 @@ class FakeTrace:
     interactions: list[FakeInteraction] = field(default_factory=list)
 
 
-def _op(phase: str, label: str, actor_cus: str, message: str | None = None) -> Operation:
-    return Operation(phase=phase, label=label, actor_cus=actor_cus, message=message)
+def _op(phase: str, label: str, actor_cus: str, message: str | None = None):
+    return operation(phase=phase, label=label, actor_id=actor_cus, message=message)
 
 
 def _steps(

@@ -42,8 +42,6 @@ from uuid import uuid4
 
 import httpx
 
-from diskard.models import Actor
-
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -57,6 +55,11 @@ class AttackTarget(Protocol):
     ) -> dict[str, Any]: ...
 
     async def finalize(self, api_key: str, session_id: str) -> dict[str, Any]: ...
+
+
+class AttackActor(Protocol):
+    cus: str
+    api_key: str
 
 
 class PolicyEvidence(Protocol):
@@ -344,7 +347,7 @@ def _extract_message(content: str) -> tuple[str, str]:
 
 async def run_auto_attack(
     *,
-    poisoner: Actor,
+    poisoner: AttackActor,
     objective: AttackObjective,
     params: dict[str, str],
     stand: AttackTarget,

@@ -14,13 +14,27 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from diskard.models import Operation  # noqa: E402
-from ui.server import _classify_risk, wrap_dispatch_with_progress  # noqa: E402
+from diskard.checks.evidence import operation_message  # noqa: E402
+from diskard.scenarios.operations import operation  # noqa: E402
+from examples.connectors.investment_stand.ui.server import (  # noqa: E402
+    _classify_risk,
+    wrap_dispatch_with_progress,
+)
+
+
+def Operation(*, phase, label, actor_cus, session_id=None, message=None):
+    return operation(
+        phase=phase,
+        label=label,
+        actor_id=actor_cus,
+        session_id=session_id,
+        message=message,
+    )
 
 
 async def _fake_dispatch(inputs: Operation, trace) -> dict:
     if inputs.phase == "chat":
-        return {"reply": f"reply to {inputs.message}"}
+        return {"reply": f"reply to {operation_message(inputs)}"}
     return {"policy": []}
 
 

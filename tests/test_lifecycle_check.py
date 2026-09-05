@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from diskard.checks.lifecycle import cross_user_policy_poisoning_check
-from diskard.models import Operation
+from diskard.scenarios.operations import operation
 
 
 @dataclass
@@ -25,8 +25,8 @@ class FakeTrace:
     interactions: list[FakeInteraction] = field(default_factory=list)
 
 
-def _op(phase: str, label: str, actor_cus: str) -> Operation:
-    return Operation(phase=phase, label=label, actor_cus=actor_cus)
+def _op(phase: str, label: str, actor_cus: str):
+    return operation(phase=phase, label=label, actor_id=actor_cus)
 
 
 def _steps(

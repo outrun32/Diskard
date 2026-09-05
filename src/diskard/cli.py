@@ -305,14 +305,8 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     replay_manifest = ReplayManifest(
         attack=args.attack,
         config_path=str(config_path),
-        poisoner_cus=scenario_args.poisoner_cus,
-        victim_cus=scenario_args.victim_cus,
-        data_subject_cus=scenario_args.data_subject_cus,
-        control_cus=scenario_args.control_cus,
-        stand_url=str(config.connector.options.get("base_url", config.connector.name)),
-        mongo_uri=str(config.connector.options.get("mongo_uri", "")),
-        invest_url=str(config.connector.options.get("invest_url", "")),
         fail_on=args.fail_on,
+        metadata={"connector": config.connector.name},
     )
     run_dir = _run_id_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)

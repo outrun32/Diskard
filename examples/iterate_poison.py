@@ -13,12 +13,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from diskard.models import Actor  # noqa: E402
 from examples.connectors.investment_stand.backend import (  # noqa: E402
     MongoEvidence,
     SemanticMemoryEvidence,
     StandClient,
 )
+from examples.connectors.investment_stand.models import Actor  # noqa: E402
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
 POISONER_CUS = "1001"

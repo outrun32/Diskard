@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from diskard.attacker import ATTACK_OBJECTIVES, run_auto_attack
-from diskard.models import Actor
+from examples.connectors.investment_stand.models import Actor
 
 
 @dataclass

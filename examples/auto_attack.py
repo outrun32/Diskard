@@ -22,7 +22,6 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
-from diskard.models import Actor  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
     new_run_id,
@@ -36,6 +35,7 @@ from examples.connectors.investment_stand.backend import (  # noqa: E402
 )
 from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
+from examples.connectors.investment_stand.models import Actor  # noqa: E402
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
 POISONER_CUS = "1001"

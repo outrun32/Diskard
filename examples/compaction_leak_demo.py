@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from diskard.models import Actor  # noqa: E402
 from diskard.scenarios.compaction_policy_poisoning import (  # noqa: E402
     build_compaction_policy_poisoning_scenario,
     poison_session_id,
@@ -31,6 +30,7 @@ from examples.connectors.investment_stand.backend import (  # noqa: E402
 )
 from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
+from examples.connectors.investment_stand.models import Actor  # noqa: E402
 
 IDENTITIES_CACHE = Path(__file__).resolve().parent / ".identities.json"
 POISONER_CUS = "1001"

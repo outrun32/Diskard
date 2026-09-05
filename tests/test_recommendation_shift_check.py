@@ -13,7 +13,7 @@ from diskard.checks.recommendation_shift import (
     TARGET_TICKER,
     delayed_recommendation_manipulation_check,
 )
-from diskard.models import Operation
+from diskard.scenarios.operations import operation
 
 
 @dataclass
@@ -27,8 +27,8 @@ class FakeTrace:
     interactions: list[FakeInteraction] = field(default_factory=list)
 
 
-def _op(phase: str, label: str, actor_cus: str) -> Operation:
-    return Operation(phase=phase, label=label, actor_cus=actor_cus)
+def _op(phase: str, label: str, actor_cus: str):
+    return operation(phase=phase, label=label, actor_id=actor_cus)
 
 
 def _steps(

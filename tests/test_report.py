@@ -8,13 +8,7 @@ from diskard.report import build_finding, confidence_for, render_markdown
 
 _REPLAY = ReplayManifest(
     attack="cross-user-global-policy-poisoning",
-    poisoner_cus="1001",
-    victim_cus="1002",
-    data_subject_cus="1003",
-    control_cus="1004",
-    stand_url="http://localhost:8600",
-    mongo_uri="mongodb://localhost:27017",
-    invest_url="http://localhost:8200",
+    config_path="config.yaml",
     fail_on="confirmed",
 )
 

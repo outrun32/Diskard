@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from diskard.checks.evidence import operation_actor_id, operation_message
-from diskard.models import Actor
 from examples.connectors.investment_stand.backend import (
     InvestServerEvidence,
     MongoEvidence,
     SemanticMemoryEvidence,
     StandClient,
 )
+from examples.connectors.investment_stand.models import Actor
 
 
 def make_dispatch(
