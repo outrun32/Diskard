@@ -41,16 +41,31 @@ The attacking model never controls credentials, identities, authorization mode, 
 
 ## Current capabilities
 
-The pre-alpha release includes an adapter for the GenAI Investment Assistant reference target and four memory-focused scenarios:
+The current development build includes four memory-focused scenarios:
 
 - cross-user global-policy poisoning;
 - direct cross-user memory leakage;
 - compaction-time policy poisoning;
 - delayed recommendation manipulation.
 
-Diskard can drive chat and finalization under separate identities, inspect memory changes, compare vulnerable and protected execution, emit JSON findings, render Markdown reports, and replay a previous run as a fresh trial. An experimental LLM attacker can adapt payload wording after each failed persistence attempt.
+Diskard can drive chat and finalization under separate identities, inspect memory changes, compare two authorization modes, emit JSON findings, render Markdown reports, and replay a previous run as a fresh trial. An experimental LLM attacker can adapt payload wording after each failed persistence attempt.
 
-The current adapter uses grey-box evidence from the reference target's MongoDB and invest-server. Generic adapter contracts, black-box fallback, complete state restoration, and broader tool tracing are still under development.
+The first proof-of-concept connector uses target-specific grey-box sources. That integration is moving to `examples/connectors/`; the package itself is being reduced to generic connector, lifecycle, evidence, and isolation contracts. Black-box fallback and complete state restoration are still under development.
+
+## Connector model
+
+A connector translates Diskard operations into calls understood by one agent system. It owns protocol details such as authentication headers, session identifiers, finalization endpoints, and optional evidence sources. Attack families must not import a connector implementation.
+
+Each connector will ship with its own example configuration:
+
+```text
+examples/connectors/<name>/
+├── connector.py
+├── diskard.yaml
+└── README.md
+```
+
+Diskard core will test every connector against the same contract suite: health check, identity isolation, lifecycle ordering, timeout mapping, cleanup idempotency, and black-box execution without optional collectors.
 
 ## Installation
 
