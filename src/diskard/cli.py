@@ -367,6 +367,10 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 execute_attempt=execute_attempt,
                 max_attempts=config.attacker.max_attempts,
             )
+        except Exception as exc:  # noqa: BLE001 -- provider/attempt failure is infrastructure
+            await connector.aclose()
+            print(f"INFRASTRUCTURE ERROR: agentic search failed: {exc}")
+            return 3
         finally:
             await attacker.aclose()
 
@@ -381,7 +385,6 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
 
     suite_result = None
     execution_error: Exception | None = None
-    cleanup_error: Exception | None = None
     started_at = datetime.now(UTC)
     try:
         suite_result = await execute_scenario(scenario, run_id)
@@ -414,8 +417,8 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     if campaign is not None:
         envelope["campaign"] = campaign.to_dict()
 
-    if execution_error is not None or cleanup_error is not None or suite_result is None:
-        error = cleanup_error or execution_error or RuntimeError("scan produced no result")
+    if execution_error is not None or suite_result is None:
+        error = execution_error or RuntimeError("scan produced no result")
         envelope.update(
             check_status="error",
             message=str(error),

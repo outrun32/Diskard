@@ -84,6 +84,12 @@ Install the optional local console dependencies with:
 uv sync --extra dev --extra ui --extra investment-stand
 ```
 
+Install the Giskard-backed model driver with:
+
+```bash
+uv sync --extra openai
+```
+
 ## CLI
 
 Check that the target and test identities are reachable:
@@ -100,6 +106,21 @@ uv run diskard scan path/to/diskard.yaml \
   --attack cross-user-global-policy-poisoning
 ```
 
+The default `deterministic` driver uses a fixed, reviewable input. The optional
+`llm-agent` driver asks the model configured under `attacker.provider` to propose
+a candidate, evaluates it through the same lifecycle checks, feeds the observed
+stage results into the next attempt, and confirms the selected candidate on a
+fresh state snapshot:
+
+```bash
+uv run diskard scan path/to/diskard.yaml \
+  --attack cross-user-global-policy-poisoning \
+  --driver llm-agent
+```
+
+Provider secrets are read from the environment variable names stored in the
+configuration file. They are not included in model prompts or run manifests.
+
 Every scan records a run manifest. Confirmed findings can be rendered and a run can be repeated:
 
 ```bash
@@ -108,6 +129,28 @@ uv run diskard replay RUN_ID
 ```
 
 Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
+
+## Payload drivers
+
+`deterministic` uses the fixed payload stored with an attack family. It is the default and is suitable for regression checks.
+
+`llm-agent` uses a model through Giskard's `Generator` interface. The model proposes a payload, receives the previous attempt's persistence evidence, and adjusts the next candidate. Diskard keeps identity selection, execution, isolation, and the final verdict outside the model.
+
+Install the provider integration before using this driver:
+
+```bash
+uv sync --extra openai
+```
+
+Select the provider and environment-variable names in `diskard.yaml`, then run:
+
+```bash
+uv run diskard scan path/to/diskard.yaml \
+  --attack ATTACK_NAME \
+  --driver llm-agent
+```
+
+The search attempts run on isolated state. A selected candidate is tested once more in a fresh lifecycle run before Diskard reports the result.
 
 ## Package model
 

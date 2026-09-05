@@ -21,6 +21,7 @@ from diskard.attacker import (
     _build_user_prompt,
     run_agentic_search,
 )
+from diskard.config import AttackerConfig
 
 
 class FakeGenerator:
@@ -198,3 +199,41 @@ async def test_agentic_search_stops_after_a_persisting_attempt():
     assert seen == [1, 2]
     assert campaign.succeeded is True
     assert campaign.winning_message == "candidate"
+
+
+def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
+    configured = {}
+    fake_generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
+
+    def configure(name, provider, **options):
+        configured.update(name=name, provider=provider, options=options)
+
+    monkeypatch.setattr("giskard.llm.configure", configure)
+    monkeypatch.setattr("giskard.agents.Generator", lambda model: fake_generator)
+    monkeypatch.setenv("TEST_ATTACKER_KEY", "secret")
+    monkeypatch.setenv(
+        "TEST_ATTACKER_ENDPOINT",
+        "https://example.services.ai.azure.com/models/chat/completions",
+    )
+    monkeypatch.setenv("TEST_ATTACKER_VERSION", "2024-05-01-preview")
+    config = AttackerConfig.model_validate(
+        {
+            "driver": "llm-agent",
+            "provider": {
+                "name": "deepseek-test",
+                "type": "azure_ai",
+                "model": "DeepSeek-V4-Flash",
+                "api_key_env": "TEST_ATTACKER_KEY",
+                "base_url_env": "TEST_ATTACKER_ENDPOINT",
+                "api_version_env": "TEST_ATTACKER_VERSION",
+            },
+        }
+    )
+
+    attacker = AttackerLLM.from_config(config)
+
+    assert attacker._generator is fake_generator
+    assert configured["name"] == "deepseek-test"
+    assert configured["provider"] == "azure_ai"
+    assert configured["options"]["api_key"] == "secret"
+    assert configured["options"]["base_url"] == "https://example.services.ai.azure.com"
