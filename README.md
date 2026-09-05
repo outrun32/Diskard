@@ -141,7 +141,8 @@ Select the provider and environment-variable names in `diskard.yaml`, then run:
 ```bash
 uv run diskard scan path/to/diskard.yaml \
   --attack ATTACK_NAME \
-  --driver llm-agent
+  --driver llm-agent \
+  --max-attempts 3
 ```
 
 The search attempts run on isolated state. A selected candidate is tested once more in a fresh lifecycle run before Diskard reports the result.

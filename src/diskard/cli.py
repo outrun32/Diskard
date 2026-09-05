@@ -52,6 +52,13 @@ KNOWN_ADAPTERS = {
 }
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be at least 1")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="diskard",
@@ -77,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["deterministic", "llm-agent"],
         default=None,
         help="Payload driver. Defaults to the value in the connector config.",
+    )
+    scan.add_argument(
+        "--max-attempts",
+        type=_positive_int,
+        default=None,
+        help="Override the llm-agent attempt budget from the config.",
     )
     scan.add_argument(
         "--fail-on",
@@ -365,7 +378,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 params=attacker_params,
                 attacker=attacker,
                 execute_attempt=execute_attempt,
-                max_attempts=config.attacker.max_attempts,
+                max_attempts=args.max_attempts or config.attacker.max_attempts,
             )
         except Exception as exc:  # noqa: BLE001 -- provider/attempt failure is infrastructure
             await connector.aclose()
@@ -398,7 +411,11 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         attack=args.attack,
         config_path=str(config_path),
         fail_on=args.fail_on,
-        metadata={"connector": config.connector.name, "driver": driver},
+        metadata={
+            "connector": config.connector.name,
+            "driver": driver,
+            "max_attempts": args.max_attempts or config.attacker.max_attempts,
+        },
     )
     run_dir = _run_id_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -547,6 +564,7 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
         config=config_path,
         attack=manifest["attack"],
         driver=(manifest.get("metadata") or {}).get("driver"),
+        max_attempts=(manifest.get("metadata") or {}).get("max_attempts"),
         fail_on=manifest["fail_on"],
     )
     print(f"replaying run {args.run_id} through connector config {config_path!r}")

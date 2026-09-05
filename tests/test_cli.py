@@ -49,9 +49,19 @@ def test_scan_requires_a_connector_config():
 
 def test_scan_accepts_llm_agent_driver_without_running_it():
     parser = build_parser()
-    args = parser.parse_args(["scan", "config.yaml", "--driver", "llm-agent"])
+    args = parser.parse_args(
+        ["scan", "config.yaml", "--driver", "llm-agent", "--max-attempts", "2"]
+    )
 
     assert args.driver == "llm-agent"
+    assert args.max_attempts == 2
+
+
+def test_scan_rejects_zero_attempt_budget():
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["scan", "config.yaml", "--max-attempts", "0"])
+    assert exc_info.value.code == 2
 
 
 def test_scan_rejects_unknown_attack():
