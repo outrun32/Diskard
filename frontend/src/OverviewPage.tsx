@@ -9,7 +9,7 @@ import { useLanguage } from "./i18n";
 type Overview = {
   counts: {runs:number;active:number;findings:number;errors:number;unknown:number};
   targets:number;synthetic_runs:number;active:RunSummary[];recent:RunSummary[];
-  checks?:{id:string;profile_id:string;profile_version?:number;attacks:string[];created_at?:string}[];
+  checks?:{id:string;profile_id:string;profile_version?:number;name?:string|null;attacks:string[];created_at?:string}[];
 };
 async function overview(signal:AbortSignal):Promise<Overview> {
   if (DEMO_MODE) {
@@ -34,7 +34,7 @@ function RecentAttackRows({checks,runs}:{checks:NonNullable<Overview["checks"]>;
   ].sort((a,b)=>Date.parse(b.at)-Date.parse(a.at)).slice(0,8);
   return <div className="overview-results">{items.map(item=>item.kind==="check"?
     <Link key={`check-${item.check.id}`} className="overview-run" to={`/checks/${item.check.id}`}>
-      <div><strong>{item.check.profile_id}</strong><span>{item.check.attacks.length} attacks - {item.check.id.slice(0,8)}</span></div>
+      <div><strong>{item.check.name??item.check.profile_id}</strong><span>{item.check.name?`${item.check.profile_id} - `:""}{item.check.attacks.length} attacks - {item.check.id.slice(0,8)}</span></div>
       <span>{item.check.created_at?new Date(item.check.created_at).toLocaleString("en-GB"):"Full attack"}</span><ArrowRight size={16}/>
     </Link>:
     <Link key={`run-${item.run.id}`} className="overview-run" to={`/runs/${encodeURIComponent(item.run.id)}/trace`}>

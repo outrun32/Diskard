@@ -180,6 +180,7 @@ class Job:
 
 JOBS: dict[str, Job] = {}
 ACTIVE_JOB_ID: str | None = None
+FINDING_EXPLANATIONS: dict[str, str] = {}
 
 
 class Ctx:
@@ -949,6 +950,11 @@ class CheckCreateRequest(BaseModel):
     submission_id: str = Field(min_length=1, max_length=128)
 
 
+class CheckUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=160)
+
+
 @app.post("/api/v1/checks")
 async def create_check(request: Request, payload: CheckCreateRequest):
     _guard_state_change(request)
@@ -970,6 +976,17 @@ def get_check(check_id: str):
     if result is None:
         raise HTTPException(404, "Unknown check")
     return result
+
+
+@app.patch("/api/v1/checks/{check_id}")
+def update_check(request: Request, check_id: str, payload: CheckUpdateRequest):
+    _guard_state_change(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(422, "name must not be blank")
+    if not _console_runtime().require_store().rename_check(check_id, name):
+        raise HTTPException(404, "unknown check")
+    return get_check(check_id)
 
 
 @app.delete("/api/v1/checks/{check_id}", status_code=204)
@@ -1207,6 +1224,29 @@ def get_durable_run(run_id: str):
     if run is None:
         raise HTTPException(404, "unknown run")
     return run
+
+
+@app.post("/api/v1/runs/{run_id}/finding/explanation")
+async def explain_durable_finding(request: Request, run_id: str):
+    _guard_state_change(request)
+    cached = FINDING_EXPLANATIONS.get(run_id)
+    if cached:
+        return {"explanation": cached, "cached": True}
+    run = _console_runtime().require_store().run(run_id, include_events=False)
+    if run is None:
+        raise HTTPException(404, "unknown run")
+    if run.get("finding") is None:
+        raise HTTPException(409, "run has no finding to explain")
+    from diskard.console.bridge import BridgeError, generate_finding_explanation
+
+    try:
+        explanation = await generate_finding_explanation(run)
+    except BridgeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, "model could not explain this finding") from exc
+    FINDING_EXPLANATIONS[run_id] = explanation
+    return {"explanation": explanation, "cached": False}
 
 
 @app.delete("/api/v1/runs/{run_id}", status_code=204)

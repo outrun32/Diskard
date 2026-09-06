@@ -65,6 +65,17 @@ export async function deleteCheck(id:string):Promise<void>{
  if(DEMO_MODE)return;
  await request("/api/v1/checks/"+encodeURIComponent(id),{method:"DELETE"});
 }
+export async function renameCheck(id:string,name:string):Promise<void>{
+ if(DEMO_MODE)return;
+ await request("/api/v1/checks/"+encodeURIComponent(id),{method:"PATCH",body:JSON.stringify({name})});
+}
+export async function explainFinding(id:string):Promise<string>{
+ if(DEMO_MODE)return "Synthetic demo finding; no model was called.";
+ const result=record(await request(url(id)+"/finding/explanation",{method:"POST",body:"{}"}));
+ const explanation=jsonText(result.explanation);
+ if(!explanation)throw new ApiError("The model returned no explanation");
+ return explanation;
+}
 const demoProfile:Profile={id:"investment-local",name:"Демонстрационная цель",adapter:"investment-stand",version:1,config:{schema_version:1,id:"investment-local",name:"Демонстрационная цель",adapter:"investment-stand",base_url:"http://localhost:8600",actors:{attacker:{cus:"attacker",credential_env:"DISKARD_ATTACKER_TARGET_KEY"}},lifecycle:{},adapter_options:{}},actor_status:{}};
 let profiles:Profile[]|undefined;
 function demoProfiles(){if(!profiles){try{profiles=JSON.parse(sessionStorage.getItem("diskard-demo-profiles")??"null")??[demoProfile];}catch{profiles=[demoProfile];}}return profiles!;}

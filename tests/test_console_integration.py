@@ -53,6 +53,17 @@ async def test_http_operator_journey(tmp_path, monkeypatch):
                     break
                 await asyncio.sleep(0.03)
             assert saved["status"] == "completed"
+            async def explain_finding(_run):
+                return "The model explains the stored security evidence."
+
+            monkeypatch.setattr(
+                "diskard.console.bridge.generate_finding_explanation", explain_finding
+            )
+            explanation = await client.post(
+                f"/api/v1/runs/{run_id}/finding/explanation", json={}
+            )
+            assert explanation.status_code == 200
+            assert explanation.json()["explanation"].startswith("The model explains")
             events = (await client.get(f"/api/v1/runs/{run_id}/events")).json()
             assert events["items"][-1]["sequence"] == saved["last_event_sequence"]
             for format in ("html", "markdown", "json", "junit"):
@@ -88,6 +99,11 @@ async def test_http_operator_journey(tmp_path, monkeypatch):
             assert check.status_code == 200, check.text
             check_id = check.json()["id"]
             assert check.json()["attacks"] == ["fixture"]
+            renamed = await client.patch(
+                f"/api/v1/checks/{check_id}", json={"name": "Quarterly assessment"}
+            )
+            assert renamed.status_code == 200
+            assert renamed.json()["name"] == "Quarterly assessment"
             assert len((await client.get(f"/api/v1/checks/{check_id}")).json()["runs"]) == 1
             assert (await client.post(f"/api/v1/checks/{check_id}/cancel")).status_code == 200
             assert (await client.get(f"/api/v1/checks/{check_id}/report")).status_code == 200

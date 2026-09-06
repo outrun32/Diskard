@@ -43,7 +43,7 @@ except ImportError as exc:  # pragma: no cover
         "The durable console needs SQLAlchemy. Install diskard[console] or diskard[dev]."
     ) from exc
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 metadata = MetaData()
 
 checks = Table(
@@ -54,6 +54,7 @@ checks = Table(
     Column("request_digest", String(64), nullable=False),
     Column("profile_id", String(80), nullable=False),
     Column("profile_version", Integer, nullable=False),
+    Column("name", String(160), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("attacks", JSON, nullable=False),
     Column("run_ids", JSON, nullable=False),
@@ -511,6 +512,7 @@ class RunStore:
                 "request_digest": request_digest,
                 "profile_id": profile["id"],
                 "profile_version": profile["version"],
+                "name": None,
                 "created_at": _now(),
                 "attacks": attacks,
                 "run_ids": run_ids,
@@ -696,6 +698,13 @@ class RunStore:
                 for child_id in all_run_ids:
                     self._delete_run_records(connection, child_id)
             result = connection.execute(delete(checks).where(checks.c.id == check_id))
+            return bool(result.rowcount)
+
+    def rename_check(self, check_id: str, name: str) -> bool:
+        with self.engine.begin() as connection:
+            result = connection.execute(
+                update(checks).where(checks.c.id == check_id).values(name=name)
+            )
             return bool(result.rowcount)
 
     def overview(self) -> dict[str, Any]:

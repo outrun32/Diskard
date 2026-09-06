@@ -162,6 +162,9 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
     )
     assert actors["data_subject"].access_token == "token-1003"
     assert calls["keys"] == 2
+    token_calls = calls["tokens"]
+    await bridge._refresh_access_token(target, actors["data_subject"])
+    assert calls["tokens"] == token_calls + 1
 
     FakeBootstrap.fail = True
     failed = await InvestmentExecutionBridge().validate(target, attacks=attacks)
@@ -199,6 +202,8 @@ def test_full_check_is_atomic_and_retry_does_not_duplicate(store, monkeypatch):
     )
     group = store.create_check(**kwargs)
     assert store.create_check(**kwargs)["id"] == group["id"]
+    assert store.rename_check(group["id"], "Quarterly assessment")
+    assert store.check(group["id"])["name"] == "Quarterly assessment"
     assert len(store.check(group["id"])["runs"]) == 2
     assert store.overview()["counts"]["runs"] == 2
     original = store.create_run

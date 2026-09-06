@@ -440,23 +440,38 @@ class GiskardAttacker:
     async def propose(
         self, system_prompt: str, params: dict[str, str], history: list[AttemptResult]
     ) -> tuple[str, str]:
-        from giskard.agents.generators import GenerationParams
-
-        response = await self._generator.complete(
+        content = await self.complete_text(
             [
                 {"role": "system", "content": system_prompt.format(**params)},
                 {"role": "user", "content": _build_user_prompt(params, history)},
             ],
+            temperature=0.9,
+            max_tokens=500,
+        )
+        return _extract_message(content)
+
+    async def complete_text(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        max_tokens: int = 240,
+    ) -> str:
+        """Return plain model text for small server-side analysis tasks."""
+        from giskard.agents.generators import GenerationParams
+
+        response = await self._generator.complete(
+            messages,
             params=GenerationParams(
-                temperature=0.9,
-                max_tokens=500,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 timeout=self._timeout_seconds,
             ),
         )
         content = response.choices[0].message.content
         if not isinstance(content, str):
             raise TypeError("attacker model returned non-text content")
-        return _extract_message(content)
+        return content.strip()
 
     async def aclose(self) -> None:
         return None
