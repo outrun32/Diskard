@@ -300,10 +300,11 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         )
 
         objective = ATTACK_OBJECTIVES.get(args.attack)
-        if objective is None:
+        if objective is None or attack_definition.build_seed is None:
             await close_resources()
             print(f"attack {args.attack!r} does not support the llm-agent driver")
             return 2
+        seed_message = attack_definition.build_seed(scenario_args)
 
         if args.attack == "delayed-recommendation-manipulation":
             from diskard.checks.recommendation_shift import (
@@ -375,6 +376,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 attacker=attacker,
                 execute_attempt=execute_attempt,
                 max_attempts=args.max_attempts or config.attacker.max_attempts,
+                seed_message=seed_message,
             )
         except Exception as exc:  # noqa: BLE001 -- provider/attempt failure is infrastructure
             cleanup_error = await close_resources()

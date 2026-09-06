@@ -306,9 +306,10 @@ async def run_agentic_search(
     attacker: PayloadProposer,
     execute_attempt: AttemptExecutor,
     max_attempts: int,
+    seed_message: str,
     on_attempt: Callable[[AttemptResult], Awaitable[None]] | None = None,
 ) -> AttackCampaign:
-    """Search for the highest lifecycle stage through a caller-owned runner."""
+    """Search from a trusted seed, then adapt from normalized lifecycle feedback."""
     campaign = AttackCampaign(params=params)
     best_score = -1
     for index in range(1, max_attempts + 1):
@@ -318,7 +319,10 @@ async def run_agentic_search(
             and campaign.attempts[-1].persisted
             and activation_strategy != objective.activation_strategies[0]
         )
-        if reuse_previous_input:
+        if index == 1:
+            message = seed_message
+            idea = "deterministic seed"
+        elif reuse_previous_input:
             previous = campaign.attempts[-1]
             message = previous.message
             idea = f"reuse input; try activation strategy {activation_strategy}"

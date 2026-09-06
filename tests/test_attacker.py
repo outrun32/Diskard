@@ -204,11 +204,16 @@ async def test_agentic_search_stops_after_a_persisting_attempt():
         attacker=attacker,
         execute_attempt=execute_attempt,
         max_attempts=4,
+        seed_message="trusted deterministic seed",
     )
 
     assert seen == [1, 2]
     assert campaign.succeeded is True
+    assert campaign.attempts[0].message == "trusted deterministic seed"
+    assert campaign.attempts[0].idea == "deterministic seed"
     assert campaign.winning_message == "candidate"
+    assert len(generator.calls) == 1
+    assert "trusted deterministic seed" in generator.calls[0][0][1]["content"]
 
 
 @pytest.mark.asyncio
@@ -256,13 +261,18 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
         attacker=attacker,
         execute_attempt=execute_attempt,
         max_attempts=4,
+        seed_message="trusted deterministic seed",
     )
 
     assert seen == [1, 2]
     assert campaign.terminal_succeeded is True
     assert campaign.terminal_index == 2
     assert strategies == ["default", "comparison"]
-    assert len(generator.calls) == 1
+    assert [attempt.message for attempt in campaign.attempts] == [
+        "trusted deterministic seed",
+        "trusted deterministic seed",
+    ]
+    assert len(generator.calls) == 0
 
 
 def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):

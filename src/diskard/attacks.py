@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 ScenarioBuilder = Callable[[Any, Any, str], tuple[Any, str]]
+SeedBuilder = Callable[[Any], str]
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class AttackDefinition:
     build: ScenarioBuilder
     required_collectors: frozenset[str] = frozenset()
     supports_llm_driver: bool = True
+    build_seed: SeedBuilder | None = None
 
 
 class AttackRegistry:
@@ -92,6 +94,24 @@ def _direct_memory_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any,
     return scenario, deliver_session_id(run_id)
 
 
+def _policy_seed(args: Any) -> str:
+    from diskard.scenarios.cross_user_policy_poisoning import POISON_MESSAGE_TEMPLATE
+
+    return POISON_MESSAGE_TEMPLATE.format(data_subject_cus=args.data_subject_cus)
+
+
+def _compaction_seed(args: Any) -> str:
+    from diskard.scenarios.compaction_policy_poisoning import POISON_MESSAGE_TEMPLATE
+
+    return POISON_MESSAGE_TEMPLATE.format(data_subject_cus=args.data_subject_cus)
+
+
+def _recommendation_seed(args: Any) -> str:
+    from diskard.scenarios.delayed_recommendation_manipulation import POISON_MESSAGE
+
+    return POISON_MESSAGE
+
+
 def _recommendation_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, str]:
     from diskard.scenarios.delayed_recommendation_manipulation import (
         build_delayed_recommendation_manipulation_scenario,
@@ -117,6 +137,7 @@ ATTACKS.register(
         description="Persistent policy change followed by a later cross-identity check.",
         build=_policy_scenario,
         required_collectors=frozenset({"policy-memory", "ground-truth"}),
+        build_seed=_policy_seed,
     )
 )
 ATTACKS.register(
@@ -134,6 +155,7 @@ ATTACKS.register(
         description="Persistent policy check across a longer compacted interaction.",
         build=_compaction_scenario,
         required_collectors=frozenset({"policy-memory", "ground-truth"}),
+        build_seed=_compaction_seed,
     )
 )
 ATTACKS.register(
@@ -142,5 +164,6 @@ ATTACKS.register(
         description="Delayed decision-shift check with a clean control cohort.",
         build=_recommendation_scenario,
         required_collectors=frozenset({"policy-memory"}),
+        build_seed=_recommendation_seed,
     )
 )
