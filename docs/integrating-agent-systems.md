@@ -356,6 +356,14 @@ Install the optional baseline dependency with `uv sync --extra baseline`. Diskar
 
 Do not run a new connector against production or a shared environment until its isolation tests pass against a disposable instance.
 
+For the bundled local reference connector, run the sanitized controlled validation helper:
+
+```bash
+uv run --extra investment-stand python scripts/controlled_live_validation.py
+```
+
+It writes full subprocess output to an ignored local file and prints only exit status, aggregate metrics, collection counts, and equality flags. Share `summary.json`, not `scan.log`, when reviewing the result.
+
 ## 12. Context checklist for coding agents
 
 Before changing an integration, read:
