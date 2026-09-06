@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Activity, ArrowRight, RefreshCw } from "lucide-react";
-import { request, getSetup, DEMO_MODE, listRunsPage, mapRun } from "./api";
-import { Failure, Checks } from "./SetupPages";
+import { Activity, ArrowRight } from "lucide-react";
+import { request, DEMO_MODE, listRunsPage, mapRun } from "./api";
+import { Failure } from "./SetupPages";
 import type { RunSummary } from "./types";
 import { useLanguage } from "./i18n";
 
@@ -30,7 +30,6 @@ function ResultRows({runs}:{runs:RunSummary[]}) {
 export default function OverviewPage() {
   const {t}=useLanguage();
   const q=useQuery({queryKey:["overview"],queryFn:({signal})=>overview(signal),refetchInterval:5000,retry:1});
-  const setup=useQuery({queryKey:["setup"],queryFn:({signal})=>getSetup(signal),refetchInterval:15000,retry:1});
   return <div className="overview-page">
     <div className="page-header"><div><h1>{t("overview")}</h1><p>Current activity and results that need attention.</p></div><Link className="button button-primary" to="/runs/new">{t("newRun")} <ArrowRight size={16}/></Link></div>
     {q.isPending?<p role="status">Loading overview…</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:<>
@@ -41,9 +40,5 @@ export default function OverviewPage() {
       {!!q.data.checks?.length&&<section className="overview-section"><div className="overview-section-heading"><h2>Recent full attacks</h2><Link className="text-link" to="/runs">All runs</Link></div><div className="overview-results">{q.data.checks.map(check=><Link className="overview-run" key={check.id} to={`/checks/${check.id}`}><div><strong>{check.profile_id}</strong><span>{check.attacks.length} attacks · {check.id.slice(0,8)}</span></div><span>Open full attack</span><ArrowRight size={16}/></Link>)}</div></section>}
       <section className="overview-section"><div className="overview-section-heading"><h2>Recent results</h2><Link className="text-link" to="/runs">All runs <ArrowRight size={15}/></Link></div>{q.data.recent.length?<ResultRows runs={q.data.recent}/>:<p>No runs yet.</p>}</section>
     </>}
-    <details className="overview-diagnostics"><summary>System status · {setup.isPending?"checking":setup.isError?"offline":setup.data?.storage_ready?"storage ready":"configuration required"}</summary>
-      {setup.isError?<Failure error={setup.error}/>:setup.data&&<Checks checks={setup.data.checks}/>}
-      <div className="target-card-actions"><button className="button button-secondary" onClick={()=>{void setup.refetch();void q.refetch();}}><RefreshCw size={15}/> Refresh</button><Link className="text-link" to="/targets">Manage targets</Link></div>
-    </details>
   </div>;
 }

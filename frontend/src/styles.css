@@ -19,8 +19,6 @@
 .overview-run span,.overview-run small { display:block; color:var(--ink-soft); margin-top:5px; overflow-wrap:anywhere; }
 .overview-start { padding:24px; background:var(--surface); border-radius:12px; margin-block:24px; }
 .overview-start p { color:var(--ink-soft); max-width:70ch; line-height:1.6; }
-.overview-diagnostics { margin-top:36px; border-top:1px solid var(--line); padding-top:20px; }
-.overview-diagnostics summary { cursor:pointer; color:var(--ink-soft); }
 @media(max-width:700px) { .overview-totals { grid-template-columns:repeat(2,minmax(0,1fr)); } .overview-run { grid-template-columns:minmax(0,1fr) 20px; } .overview-run>div:nth-child(2) { grid-column:1; } .overview-run>svg { grid-column:2; grid-row:1; } }
 
 :root {
