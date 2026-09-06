@@ -7,9 +7,11 @@ import App from "./App";
 import {run,event,memoryEvent,profile} from "./contract-fixtures";
 const hostile="<script>alert('payload')</script>"+ "Очень длинный ответ ".repeat(500);
 let fetchMock:ReturnType<typeof vi.fn>;
+let catalogDrivers=[{id:"template",available:true},{id:"llm-auto-attacker",available:false,reason:"Provider unavailable"}];
 const clients:QueryClient[]=[];
 function mount(path:string){const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:0}}});clients.push(client);return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App/></MemoryRouter></QueryClientProvider>);}
 beforeEach(()=>{
+ catalogDrivers=[{id:"template",available:true},{id:"llm-auto-attacker",available:false,reason:"Provider unavailable"}];
  fetchMock=vi.fn(async(path:string,init?:RequestInit)=>{
  const u=new URL(path,"http://local");let data:unknown;
  if(u.pathname.endsWith("/events"))data={items:[{...event(1),data:{message:hostile}},memoryEvent,event(3)],last_event_sequence:3};
@@ -19,7 +21,7 @@ beforeEach(()=>{
  else if(u.pathname==="/api/v1/runs"&&init?.method==="POST")data={...run,id:"created-run"};
  else if(u.pathname==="/api/v1/runs")data={items:[run],total:1,offset:0,limit:50};
  else if(u.pathname==="/api/v1/targets")data={items:[profile]};
- else if(u.pathname==="/api/v1/catalog")data={attacks:[{id:"policy-test",available:true}],drivers:[{id:"template",available:true},{id:"llm-auto-attacker",available:false,reason:"Provider unavailable"}],limitations:[]};
+ else if(u.pathname==="/api/v1/catalog")data={attacks:[{id:"policy-test",available:true}],drivers:catalogDrivers,limitations:[]};
  else data=run;
  return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});
  });vi.stubGlobal("fetch",fetchMock);
@@ -42,10 +44,17 @@ describe("operator journey using actual API shapes",()=>{
  expect(fetchMock.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
  });
  it("launches with catalog values and backend-supported field names",async()=>{
- mount("/runs/new?target=investment-local");await screen.findByRole("option",{name:/Test target/});expect(await screen.findByRole("combobox",{name:"Attack method"})).toHaveValue("full");await waitFor(()=>expect(screen.getByRole("button",{name:"Run attack"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Run attack"}));
+ mount("/runs/new?target=investment-local");await screen.findByRole("option",{name:/Test target/});expect(await screen.findByRole("combobox",{name:"Attack method"})).toHaveValue("full");expect(screen.getByRole("combobox",{name:"Execution mode"})).toHaveValue("template");await waitFor(()=>expect(screen.getByRole("button",{name:"Run attack"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Run attack"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")).toBe(true));
  const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
  expect(JSON.parse(String(call[1]?.body))).toMatchObject({profile_id:"investment-local",attacks:["policy-test"],driver:"template"});
+ });
+ it("lets the operator choose the automatic LLM driver",async()=>{
+ catalogDrivers=[{id:"template",available:true},{id:"llm-auto-attacker",available:true}];
+ mount("/runs/new?target=investment-local");const mode=await screen.findByRole("combobox",{name:"Execution mode"});expect(mode).toHaveValue("template");await userEvent.selectOptions(mode,"llm-auto-attacker");expect(mode).toHaveValue("llm-auto-attacker");await waitFor(()=>expect(screen.getByRole("button",{name:"Run attack"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Run attack"}));
+ await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")).toBe(true));
+ const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
+ expect(JSON.parse(String(call[1]?.body))).toMatchObject({driver:"llm-auto-attacker"});
  });
  it("shows API failures as failures",async()=>{
  fetchMock.mockImplementation(async()=>new Response('{"detail":"storage offline"}',{status:503}));mount("/runs");
