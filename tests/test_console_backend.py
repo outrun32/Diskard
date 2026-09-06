@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from diskard.console.bridge import FakeExecutionBridge, InvestmentExecutionBridge
@@ -24,6 +25,32 @@ def profile() -> TargetProfile:
             "actors": {},
         }
     )
+
+
+@pytest.mark.asyncio
+async def test_investment_target_validation_uses_healthz(monkeypatch):
+    requested: list[str] = []
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(200, json={"status": "ok"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    monkeypatch.setattr("diskard.console.bridge.httpx.AsyncClient", lambda **_: client)
+    target = TargetProfile.model_validate(
+        {
+            "id": "investment",
+            "name": "Investment stand",
+            "adapter": "investment-stand",
+            "base_url": "http://stand.local",
+        }
+    )
+
+    report = await InvestmentExecutionBridge().validate(target, attacks=[])
+
+    assert requested == ["http://stand.local/healthz"]
+    target_check = next(check for check in report.checks if check["id"] == "target_api")
+    assert target_check["status"] == "ready"
 
 
 @pytest.fixture

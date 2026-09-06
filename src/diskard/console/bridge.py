@@ -173,7 +173,7 @@ class InvestmentExecutionBridge:
         )
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(profile.base_url + "/health")
+                response = await client.get(profile.base_url + "/healthz")
             checks.append(
                 {
                     "id": "target_api",
