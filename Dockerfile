@@ -14,15 +14,16 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv==0.8.15
 COPY pyproject.toml uv.lock README.md LICENSE ./
 
-RUN uv sync --frozen --extra console --no-dev --no-install-project
+RUN uv sync --frozen --extra console --extra investment-stand --extra llm --no-dev --no-install-project
 
 COPY src ./src
+COPY examples ./examples
 COPY ui ./ui
 COPY --from=frontend /frontend/dist ./frontend/dist
 COPY migrations ./migrations
 COPY alembic.ini ./
 COPY config ./config
-RUN uv sync --frozen --extra console --no-dev
+RUN uv sync --frozen --extra console --extra investment-stand --extra llm --no-dev
 
 EXPOSE 8700
 CMD ["uvicorn", "ui.server:app", "--host", "0.0.0.0", "--port", "8700"]

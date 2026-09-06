@@ -52,4 +52,9 @@ The durable API is under /api/v1:
 
 /api/jobs and /api/live remain as compatibility routes for the existing live screen at /live. They are in-memory legacy endpoints and are not part of durable history.
 
-This is a local unauthenticated console. Do not expose it publicly. The integrated execution bridge currently supports the existing investment-stand adapter and fixed-template driver; target-internal LLM/tool spans, automatic target state restore, and Azure-specific attacker transport are explicitly unavailable.
+This is a local unauthenticated console. Do not expose it publicly. The integrated
+execution bridge currently supports the investment-stand compatibility profile and
+the deterministic template driver. It stores the core `presentation.schema_version=1`
+contract and renders normalized evidence by default. The current CLI remains the
+authoritative path for connector-owned isolation and the `llm-agent` driver; the web
+bridge does not reimplement those control-plane guarantees.

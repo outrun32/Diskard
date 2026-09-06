@@ -45,7 +45,7 @@ export async function drainEvents(id:string,previous:RunDetail["events"]=[],last
 }
 export async function createRun(input:RunInput):Promise<RunDetail>{
  if(DEMO_MODE){const runs=await demoRuns(),o=runs[0],id="demo-"+crypto.randomUUID();
- const r:RunDetail={...structuredClone(o),id,shortId:id.slice(0,13),title:"Демонстрационный эксперимент",family:input.attack,driver:input.driver,status:"queued",outcome:"unknown",startedAt:new Date().toISOString(),finishedAt:undefined,durationMs:undefined,events:[],stages:[],lastEventSequence:0,resultSummary:undefined,mode:"live",config:{...o.config,targetProfile:input.profile_id,family:input.attack,driver:input.driver,budget:input.budget},demo:true};
+ const r:RunDetail={...structuredClone(o),id,shortId:id.slice(0,13),title:"Демонстрационный эксперимент",family:input.attack,driver:input.driver,status:"queued",outcome:"unknown",startedAt:new Date().toISOString(),finishedAt:undefined,durationMs:undefined,events:[],stages:[],attempts:[],lastEventSequence:0,resultSummary:undefined,mode:"live",config:{...o.config,targetProfile:input.profile_id,family:input.attack,driver:input.driver,budget:input.budget},demo:true};
  runs.unshift(r);await persistDemo();return r;}
  return mapDetail(await request("/api/v1/runs",{method:"POST",body:JSON.stringify(input),headers:{"Idempotency-Key":input.submission_id}}));
 }

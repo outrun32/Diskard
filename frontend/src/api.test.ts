@@ -15,6 +15,12 @@ describe("persisted backend contract",()=>{
  const r=mapDetail(run);expect(r.target).toBe("Test target");expect(r.family).toBe("policy-test");expect(r.outcome).toBe("clean");expect(r.status).toBe("completed");expect(r.config.budget).toBe(6);expect(r.targetVersion).toBe("3");expect(r.resultSummary).toBe("Original engine message");expect(r.replay.rerun).toBe(true);
  expect(mapRun({...run,status:"future-status",summary:{}})).toMatchObject({status:"unknown",outcome:"unknown"});
  });
+ it("prefers the versioned sanitized presentation contract",()=>{
+  const detail=mapDetail({...run,summary:{...run.summary,presentation:{schema_version:1,timeline:[{id:"run:W2",sequence:0,type:"memory_persisted",source:"memory",phase:"persistence",status:"inferred",outcome:true,summary:"Persisted",data:{stage:"W2_persisted"}}],stages:{W2_persisted:true,E3_externalized:false,E1_retrieved:null},attempts:[{attempt:1,stage_verdicts:{W2_persisted:true},observations:[],failure_reason:"adopted_without_terminal_effect",allowed_adaptations:["trigger"]}],metrics:{},isolation:{enabled:true,verified:true}}}});
+  expect(detail.stages.map(stage=>stage.status)).toEqual(["passed","failed","unknown"]);
+  expect(detail.events[0]).toMatchObject({sequence:1,kind:"memory",status:"inferred",evidenceIds:["run:W2"]});
+  expect(detail.attempts[0]).toMatchObject({attempt:1,failureReason:"adopted_without_terminal_effect",allowedAdaptations:["trigger"]});
+ });
  it("preserves both input and output, operation identity and memory snapshots",()=>{
  expect(mapEvent(event(1))).toMatchObject({content:"message 1",response:"response 1",status:"completed",operation:"operation-1"});
  expect(mapEvent(memoryEvent).memory).toMatchObject({change:"snapshot",after:"ONLY_MEMORY_SNAPSHOT"});

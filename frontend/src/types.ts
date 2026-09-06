@@ -43,7 +43,7 @@ export interface TraceEvent {
   direction?: "input" | "output" | "system";
   timestamp: string;
   sourceTimestamp?: string;
-  status?: "started" | "running" | "completed" | "failed" | "observed";
+  status?: "started" | "running" | "completed" | "failed" | "observed" | "inferred";
   durationMs?: number;
   content?: string;
   response?: string;
@@ -52,6 +52,14 @@ export interface TraceEvent {
   evidenceIds?: string[];
   truncated?: boolean;
   raw?: unknown;
+}
+
+export interface AdaptiveAttempt {
+  attempt: number;
+  stageVerdicts: Record<string, boolean | null>;
+  observations: string[];
+  failureReason: string;
+  allowedAdaptations: string[];
 }
 
 export interface ReplaySupport {
@@ -102,6 +110,7 @@ export interface RunDetail extends RunSummary {
   config: RunConfig;
   events: TraceEvent[];
   stages: StageResult[];
+  attempts: AdaptiveAttempt[];
   replay: ReplaySupport;
   error?: string;
   cleanup?: "verified" | "failed" | "unknown" | "unsupported";

@@ -75,16 +75,75 @@ export function mapEvent(value: unknown): TraceEvent {
     truncated: r.truncated === true, raw: value,
   };
 }
+
+const stageLabels: Record<string, string> = {
+  D0_delivered: "Delivery",
+  W1_write_accepted: "Write accepted",
+  W2_persisted: "Persistence",
+  E1_retrieved: "Retrieval",
+  E2_adopted: "Adoption",
+  E3_externalized: "External effect",
+  T1_tool_impact: "Tool impact",
+  P1_cross_identity: "Cross-identity effect",
+};
+
+function mapPresentationEvent(value: unknown): TraceEvent {
+  const r = record(value), source = String(r.source ?? "diskard"), id = textValue(r.id) ?? "evidence";
+  const sequence = Number(r.sequence);
+  const evidenceSequence = Number.isSafeInteger(sequence) && sequence >= 0 ? sequence + 1 : 1;
+  const isMemory = source === "memory";
+  return {
+    id,
+    sequence: evidenceSequence,
+    kind: isMemory ? "memory" : "evidence",
+    operation: textValue(r.phase ?? r.type),
+    actor: textValue(r.actor_id) ?? source,
+    session: textValue(r.session_id),
+    direction: "system",
+    timestamp: textValue(r.timestamp) ?? "",
+    status: r.status === "inferred" ? "inferred" : "observed",
+    detail: textValue(r.summary),
+    memory: isMemory ? {
+      tier: "memory",
+      change: "snapshot",
+      content: textValue(r.summary),
+      sourceEventId: id,
+      evidenceId: id,
+    } : undefined,
+    evidenceIds: [id],
+    raw: value,
+  };
+}
+
 export function mapDetail(value: unknown): RunDetail {
   const r = record(value), summary = record(r.summary), c = record(r.config_snapshot ?? r.config), options = record(c.options);
-  const replay = record(r.replay_spec ?? r.replay_support), isolation = record(r.isolation_status);
-  const stages = Array.isArray(r.stages) ? r.stages.map((s, i) => {
+  const replay = record(r.replay_spec ?? r.replay_support), rawEngine = record(r.raw_engine_result);
+  const candidatePresentation = record(summary.presentation ?? rawEngine.presentation ?? r.presentation);
+  const presentation = candidatePresentation.schema_version === 1 ? candidatePresentation : {};
+  const isolation = Object.keys(record(presentation.isolation)).length ? record(presentation.isolation) : record(r.isolation_status);
+  const presentationStages = record(presentation.stages);
+  const stages = Object.keys(presentationStages).length ? Object.entries(presentationStages).map(([id, verdict]) => ({
+    id,
+    label: stageLabels[id] ?? id,
+    status: (verdict === true ? "passed" : verdict === false ? "failed" : "unknown") as RunDetail["stages"][number]["status"],
+  })) : Array.isArray(r.stages) ? r.stages.map((s, i) => {
     const row = record(s); return {id: String(row.id ?? i), label: String(row.label ?? row.name ?? i), status: (["passed","failed","unknown","not_applicable"].includes(String(row.status)) ? row.status : "unknown") as RunDetail["stages"][number]["status"], detail: jsonText(row.detail)};
   }) : [];
+  const attempts = Array.isArray(presentation.attempts) ? presentation.attempts.map((item, index) => {
+    const attempt = record(item);
+    return {
+      attempt: Number.isSafeInteger(Number(attempt.attempt)) ? Number(attempt.attempt) : index + 1,
+      stageVerdicts: record(attempt.stage_verdicts) as Record<string, boolean | null>,
+      observations: Array.isArray(attempt.observations) ? attempt.observations.map(String) : [],
+      failureReason: textValue(attempt.failure_reason) ?? "unknown",
+      allowedAdaptations: Array.isArray(attempt.allowed_adaptations) ? attempt.allowed_adaptations.map(String) : [],
+    };
+  }) : [];
+  const presentationEvents = Array.isArray(presentation.timeline) ? presentation.timeline.map(mapPresentationEvent) : [];
   const run = mapRun(value);
   return {
-    ...run, stages,
-    events: Array.isArray(r.events) ? r.events.map(mapEvent) : [],
+    ...run, stages, attempts,
+    events: presentationEvents.length ? presentationEvents : Array.isArray(r.events) ? r.events.map(mapEvent) : [],
     config: {
       targetProfile: textValue(r.target_profile_id ?? c.target_profile) ?? "—",
       targetVersion: textValue(r.target_profile_version ?? c.target_version) ?? "—",

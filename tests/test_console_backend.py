@@ -64,17 +64,24 @@ def store(tmp_path: Path):
 
 def test_full_check_is_atomic_and_retry_does_not_duplicate(store, monkeypatch):
     saved_profile = store.upsert_profile(profile())
-    kwargs = dict(profile=saved_profile, attacks=["first", "second"], driver="fixture",
-                  submission_id="full-check", source_sha="test")
+    kwargs = dict(
+        profile=saved_profile,
+        attacks=["first", "second"],
+        driver="fixture",
+        submission_id="full-check",
+        source_sha="test",
+    )
     group = store.create_check(**kwargs)
     assert store.create_check(**kwargs)["id"] == group["id"]
     assert len(store.check(group["id"])["runs"]) == 2
     assert store.overview()["counts"]["runs"] == 2
     original = store.create_run
+
     def fail_second(**values):
         if values["attack"] == "second":
             raise ValueError("injected failure")
         return original(**values)
+
     monkeypatch.setattr(store, "create_run", fail_second)
     with pytest.raises(ValueError, match="injected"):
         store.create_check(**{**kwargs, "submission_id": "rollback"})
@@ -204,7 +211,7 @@ def test_settings_reject_non_postgres_database():
 
 
 def test_investment_bridge_runs_existing_giskard_scenario_with_mocked_transport(monkeypatch):
-    import diskard.adapters.investment_stand as adapter
+    import examples.connectors.investment_stand.backend as adapter
 
     class FakeStand:
         def __init__(self, base_url):

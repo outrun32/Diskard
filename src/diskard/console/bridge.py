@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from diskard.checks.evidence import operation_actor_id, operation_label, operation_message
 from diskard.console.contracts import (
     CapabilityReport,
     EngineResult,
@@ -22,7 +23,9 @@ from diskard.console.contracts import (
     TargetProfile,
 )
 from diskard.console.redaction import redact
-from diskard.report import confidence_for
+from diskard.evidence import attacker_feedback_from_bundle, evidence_bundle_from_details
+from diskard.models import RunPresentation
+from diskard.report import aggregate_run_metrics, confidence_for
 
 
 class CancellationToken(Protocol):
@@ -284,7 +287,7 @@ class InvestmentExecutionBridge:
         return ReadinessReport(checks=checks)
 
     def _actors(self, profile: TargetProfile, *, required_roles: set[str]) -> dict[str, Any]:
-        from diskard.models import Actor
+        from examples.connectors.investment_stand.models import Actor
 
         result: dict[str, Actor] = {}
         for role in required_roles:
@@ -313,14 +316,14 @@ class InvestmentExecutionBridge:
 
         from giskard.checks import Suite
 
-        from diskard.adapters.investment_stand import (
+        from diskard.cli import _build_scenario
+        from examples.connectors.investment_stand.backend import (
             InvestServerEvidence,
             MongoEvidence,
             SemanticMemoryEvidence,
             StandClient,
         )
-        from diskard.cli import _build_scenario
-        from diskard.runner import make_dispatch
+        from examples.connectors.investment_stand.legacy_dispatch import make_dispatch
 
         if run_spec.driver != "template":
             return EngineResult(
@@ -372,18 +375,21 @@ class InvestmentExecutionBridge:
         async def wrapped_dispatch(inputs: Any, trace: Any) -> dict[str, Any]:
             if cancellation.is_set():
                 raise BridgeError("cancellation requested at operation boundary")
+            label = operation_label(inputs)
+            actor_id = operation_actor_id(inputs)
+            payload = getattr(inputs, "payload", {})
             operation_data = {
-                "label": inputs.label,
+                "label": label,
                 "phase": inputs.phase,
-                "message": inputs.message,
-                "auth_mode": inputs.auth_mode,
+                "message": operation_message(inputs),
+                "auth_mode": payload.get("auth_mode", getattr(inputs, "auth_mode", None)),
             }
             await emit(
                 EventRecord(
                     type="operation.started",
-                    actor_id=inputs.actor_cus,
+                    actor_id=actor_id,
                     session_id=inputs.session_id,
-                    operation_id=inputs.label,
+                    operation_id=label,
                     data=redact(operation_data, secret_values),
                     source_timestamp=datetime.now(UTC),
                 )
@@ -394,9 +400,9 @@ class InvestmentExecutionBridge:
                 await emit(
                     EventRecord(
                         type="operation.error",
-                        actor_id=inputs.actor_cus,
+                        actor_id=actor_id,
                         session_id=inputs.session_id,
-                        operation_id=inputs.label,
+                        operation_id=label,
                         data=redact({"error": str(exc), **operation_data}, secret_values),
                         source_timestamp=datetime.now(UTC),
                     )
@@ -405,9 +411,9 @@ class InvestmentExecutionBridge:
             await emit(
                 EventRecord(
                     type="operation.completed",
-                    actor_id=inputs.actor_cus,
+                    actor_id=actor_id,
                     session_id=inputs.session_id,
-                    operation_id=inputs.label,
+                    operation_id=label,
                     data=redact({**operation_data, "output": outputs}, secret_values),
                     source_timestamp=datetime.now(UTC),
                 )
@@ -428,6 +434,7 @@ class InvestmentExecutionBridge:
             victim_cus=role_cus["trigger_user"],
             data_subject_cus=role_cus.get("data_subject", role_cus["attacker"]),
             control_cus=role_cus.get("control", role_cus["trigger_user"]),
+            activation_strategy="default",
         )
         scenario, cleanup_key = _build_scenario(args, wrapped_dispatch, run_spec.run_id)
         operations = [
@@ -439,22 +446,23 @@ class InvestmentExecutionBridge:
             if not isinstance(saved_inputs, list) or len(saved_inputs) != len(operations):
                 raise BridgeError("saved operations do not match this scenario build")
             for operation, saved in zip(operations, saved_inputs, strict=True):
-                if (operation.label, operation.phase, role_by_cus[operation.actor_cus]) != (
+                actor_id = operation_actor_id(operation)
+                if (operation_label(operation), operation.phase, role_by_cus[actor_id]) != (
                     saved["label"],
                     saved["phase"],
                     saved["actor_role"],
                 ):
                     raise BridgeError("saved operation topology or actor roles changed")
                 # Retain freshly generated session IDs, but never regenerate payloads.
-                operation.message = saved["message"]
-                operation.auth_mode = saved["auth_mode"]
+                operation.payload["message"] = saved["message"]
+                operation.payload["auth_mode"] = saved["auth_mode"]
         resolved = [
             {
-                "label": op.label,
+                "label": operation_label(op),
                 "phase": op.phase,
-                "actor_role": role_by_cus[op.actor_cus],
-                "message": op.message,
-                "auth_mode": op.auth_mode,
+                "actor_role": role_by_cus[operation_actor_id(op)],
+                "message": operation_message(op),
+                "auth_mode": op.payload.get("auth_mode"),
                 "session_slot": op.session_id.replace(run_spec.run_id, "{run_id}")
                 if op.session_id
                 else None,
@@ -511,13 +519,49 @@ class InvestmentExecutionBridge:
             check_result = step.results[0]
             details = redact(check_result.details, secret_values)
             check_status = str(check_result.status.value)
+            evidence = evidence_bundle_from_details(
+                run_id=run_spec.run_id,
+                mode="grey-box",
+                details=details,
+                attempt=1,
+            )
+            finding_observed = check_status == "fail"
+            metrics = aggregate_run_metrics(
+                [
+                    {
+                        "run_id": run_spec.run_id,
+                        "check_status": check_status,
+                        "details": details,
+                        "finding": finding_observed,
+                    }
+                ]
+            )
+            presentation = RunPresentation(
+                timeline=evidence.events,
+                stages=evidence.stage_verdicts,
+                attempts=[attacker_feedback_from_bundle(attempt=1, bundle=evidence)],
+                metrics=metrics,
+                isolation={"enabled": False, "verified": None},
+            ).model_dump(mode="json")
             summary = {
                 "scenario": scenario.name,
                 "check_status": check_status,
                 "message": redact(check_result.message, secret_values),
                 "details": details,
                 "verdict": {"fail": "vulnerable", "pass": "clean"}.get(check_status, "unknown"),
+                "presentation": presentation,
             }
+            for event in evidence.events:
+                await emit(
+                    EventRecord(
+                        type=f"evidence.{event.type}",
+                        actor_id=event.actor_id,
+                        session_id=event.session_id,
+                        operation_id=event.phase,
+                        data=event.model_dump(mode="json"),
+                        source=event.source,
+                    )
+                )
             await emit(
                 EventRecord(
                     type="run.result",
@@ -531,9 +575,13 @@ class InvestmentExecutionBridge:
                     "id": f"{run_spec.run_id}-finding",
                     "engine_verdict": check_status,
                     "confidence": confidence_for(check_result.details),
-                    "stage_results": details,
-                    "evidence_ids": [],
-                    "raw_engine_payload": {"message": check_result.message, "details": details},
+                    "stage_results": evidence.stage_verdicts,
+                    "evidence_ids": [event.id for event in evidence.events],
+                    "raw_engine_payload": {
+                        "message": check_result.message,
+                        "details": details,
+                        "presentation": presentation,
+                    },
                 }
             return EngineResult(
                 status="cancelled"
@@ -544,6 +592,7 @@ class InvestmentExecutionBridge:
                     "check_status": check_status,
                     "message": redact(check_result.message, secret_values),
                     "details": details,
+                    "presentation": presentation,
                 },
                 summary=summary,
                 error=None

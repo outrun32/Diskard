@@ -35,28 +35,34 @@ load_dotenv(ROOT / ".env")
 import sys  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
-from diskard.adapters.investment_stand import (  # noqa: E402
-    InvestServerEvidence,
-    MongoEvidence,
-    SemanticMemoryEvidence,
-    StandClient,
-)
-from diskard.adapters.keycloak import KeycloakBootstrap  # noqa: E402
 from diskard.attacker import ATTACK_OBJECTIVES, AttackerLLM, run_auto_attack  # noqa: E402
+from diskard.checks.evidence import (  # noqa: E402
+    operation_actor_id,
+    operation_label,
+    operation_message,
+)
 from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_ISIN,
     TARGET_NAME,
     TARGET_TICKER,
 )
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
-from diskard.models import Actor, Operation  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
-from diskard.runner import make_dispatch  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
     poison_session_id,
 )
+from examples.connectors.investment_stand.backend import (  # noqa: E402
+    InvestServerEvidence,
+    MongoEvidence,
+    SemanticMemoryEvidence,
+    StandClient,
+)
+from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
+from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
+from examples.connectors.investment_stand.models import Actor  # noqa: E402
 
 try:
     from diskard.console.settings import ConsoleSettings
@@ -64,7 +70,7 @@ except ImportError:  # pragma: no cover - console dependencies are optional
     ConsoleSettings = None
 
 
-def _classify_risk(op: Operation) -> str:
+def _classify_risk(op: Any) -> str:
     """Cheap, synchronous danger label for one Operation -- no extra I/O, so
     it costs nothing to compute for every step. `finalize` is checked first
     because a poison payload's own finalize op (`poison_finalize`) also
@@ -73,17 +79,18 @@ def _classify_risk(op: Operation) -> str:
     fact that this particular finalize follows a poison chat turn."""
     if op.phase == "finalize":
         return "commit"
-    if op.phase == "chat" and ("poison" in op.label or "deliver_secret" in op.label):
+    label = operation_label(op) or ""
+    if op.phase == "chat" and ("poison" in label or "deliver_secret" in label):
         return "inject"
-    if op.phase == "chat" and "trigger" in op.label:
+    if op.phase == "chat" and "trigger" in label:
         return "trigger"
     return "info"
 
 
 def wrap_dispatch_with_progress(
-    dispatch: Callable[[Operation, Any], Any],
+    dispatch: Callable[[Any, Any], Any],
     on_step: Callable[[dict], None],
-    on_finalize: Callable[[Operation], Awaitable[dict | None]] | None = None,
+    on_finalize: Callable[[Any], Awaitable[dict | None]] | None = None,
 ):
     """Wrap a dispatch coroutine so every completed Operation is reported to
     `on_step` -- lets the live console's frontend poll and render the
@@ -98,17 +105,17 @@ def wrap_dispatch_with_progress(
     "memory just got written" signal well before the whole scenario (and its
     end-of-run oracle verdict) finishes."""
 
-    async def wrapped(inputs: Operation, trace: Any) -> dict:
+    async def wrapped(inputs: Any, trace: Any) -> dict:
         outputs = await dispatch(inputs, trace)
         memory_event = None
         if on_finalize is not None and inputs.phase == "finalize":
             memory_event = await on_finalize(inputs)
         on_step(
             {
-                "label": inputs.label,
+                "label": operation_label(inputs),
                 "phase": inputs.phase,
-                "actor_cus": inputs.actor_cus,
-                "message": inputs.message,
+                "actor_cus": operation_actor_id(inputs),
+                "message": operation_message(inputs),
                 "reply": outputs.get("reply") if isinstance(outputs, dict) else None,
                 "risk": _classify_risk(inputs),
                 "memory_event": memory_event,
@@ -532,8 +539,8 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
 
     from giskard.checks import Suite
 
-    from diskard.identities import refresh_access_token
     from diskard.scenarios.cross_user_policy_poisoning import new_run_id
+    from examples.connectors.investment_stand.identities import refresh_access_token
 
     await refresh_access_token(ctx.identities, DATA_SUBJECT_CUS)
 
@@ -546,7 +553,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         semantic=ctx.semantic,
     )
 
-    async def _check_memory_event(op: Operation) -> dict:
+    async def _check_memory_event(op: Any) -> dict:
         """Runs right after a finalize op completes -- reads Mongo directly
         (same grey-box evidence the oracle itself trusts, not the chat
         reply) to report, live, whether this specific session's finalize
@@ -555,7 +562,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         policy_records = [
             r for r in ctx.mongo.snapshot() if r.get("source_session_id") == op.session_id
         ]
-        semantic_records = ctx.semantic.find_by_user(op.actor_cus)
+        semantic_records = ctx.semantic.find_by_user(operation_actor_id(op))
         return {
             "policy_written": len(policy_records) > 0,
             "policy_mentions_data_subject": any(
