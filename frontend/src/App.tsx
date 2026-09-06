@@ -74,6 +74,7 @@ const executionLabels: Record<ExecutionStatus, string> = {
 
 const outcomeLabels: Record<SecurityOutcome, string> = {
   vulnerable: "Confirmed by engine",
+  observed: "Evidence observed",
   clean: "No finding",
   unknown: "Unknown",
   error: "Unknown due to error",
@@ -82,6 +83,7 @@ const outcomeLabels: Record<SecurityOutcome, string> = {
 
 const outcomeShortLabels: Record<SecurityOutcome, string> = {
   vulnerable: "VULNERABLE",
+  observed: "OBSERVED",
   clean: "NO FINDING",
   unknown: "UNKNOWN",
   error: "ERROR",
@@ -123,7 +125,7 @@ function StatusBadge({ status }: { status: ExecutionStatus }) {
 }
 
 function OutcomeBadge({ outcome, compact = false }: { outcome: SecurityOutcome; compact?: boolean }) {
-  const tone = outcome === "vulnerable" || outcome === "error" ? "red" : outcome === "clean" ? "green" : outcome === "unknown" ? "amber" : "muted";
+  const tone = outcome === "vulnerable" || outcome === "error" ? "red" : outcome === "clean" ? "green" : outcome === "observed" || outcome === "unknown" ? "amber" : "muted";
   return <span className={cn("status-badge", `status-${tone}`)}><span className="status-dot" />{compact ? outcomeShortLabels[outcome] : outcomeLabels[outcome]}</span>;
 }
 

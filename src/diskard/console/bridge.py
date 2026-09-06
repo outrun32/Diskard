@@ -25,7 +25,7 @@ from diskard.console.contracts import (
 from diskard.console.redaction import redact
 from diskard.evidence import attacker_feedback_from_bundle, evidence_bundle_from_details
 from diskard.models import RunPresentation
-from diskard.report import aggregate_run_metrics, confidence_for
+from diskard.report import aggregate_run_metrics, confidence_for, has_security_observation
 
 
 class CancellationToken(Protocol):
@@ -611,7 +611,10 @@ class InvestmentExecutionBridge:
                 details=details,
                 attempt=1,
             )
-            finding_observed = check_status == "fail"
+            # Keep the web result semantics aligned with the core runner:
+            # persisted/write-side evidence is an observation even without a
+            # terminal cross-user impact.
+            finding_observed = check_status == "fail" or has_security_observation(details)
             metrics = aggregate_run_metrics(
                 [
                     {
@@ -634,7 +637,13 @@ class InvestmentExecutionBridge:
                 "check_status": check_status,
                 "message": redact(check_result.message, secret_values),
                 "details": details,
-                "verdict": {"fail": "vulnerable", "pass": "clean"}.get(check_status, "unknown"),
+                "verdict": (
+                    "vulnerable"
+                    if check_status == "fail"
+                    else "observed"
+                    if finding_observed
+                    else {"pass": "clean"}.get(check_status, "unknown")
+                ),
                 "presentation": presentation,
             }
             for event in evidence.events:
@@ -656,10 +665,11 @@ class InvestmentExecutionBridge:
                 )
             )
             finding = None
-            if check_status == "fail":
+            if finding_observed:
                 finding = {
                     "id": f"{run_spec.run_id}-finding",
                     "engine_verdict": check_status,
+                    "status": "confirmed" if check_status == "fail" else "observed",
                     "confidence": confidence_for(check_result.details),
                     "stage_results": evidence.stage_verdicts,
                     "evidence_ids": [event.id for event in evidence.events],

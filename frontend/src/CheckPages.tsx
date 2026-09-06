@@ -46,7 +46,7 @@ export function CheckDetailPage() {
     <progress className="check-progress" aria-label="Completed attacks" value={done} max={runs.length||1}/>
     <p>{active?"Attacks run sequentially. You can close this page and return later.":"Full attack finished. Review each trace, including execution failures."}</p>
     {cancel.isError&&<Failure error={cancel.error}/>}
-    <div className="overview-results">{runs.map(run=><Link className="overview-run" key={run.id} to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{activeStatus(run.status)?"Running":run.status==="completed"?"Completed":run.status==="cancelled"?"Cancelled":"Failed / interrupted"}</span><small>{run.outcome==="vulnerable"?"Attack objective reached":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><span>→</span></Link>)}</div>
+    <div className="overview-results">{runs.map(run=><Link className="overview-run" key={run.id} to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{activeStatus(run.status)?"Running":run.status==="completed"?"Completed":run.status==="cancelled"?"Cancelled":"Failed / interrupted"}</span><small>{run.outcome==="vulnerable"?"Attack objective reached":run.outcome==="observed"?"Evidence observed":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><span>→</span></Link>)}</div>
     <p className="muted-copy">Coverage: {q.data.attacks.length} selected attacks. This does not guarantee detection of every issue; target memory may persist between attacks.</p>
     <Link className="text-link" to="/runs">{language==="en"?"Back to runs":"К запускам"}</Link>
   </div>;

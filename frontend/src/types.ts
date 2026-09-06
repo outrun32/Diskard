@@ -9,7 +9,7 @@ export type ExecutionStatus =
   | "imported"
   | "unknown";
 
-export type SecurityOutcome = "vulnerable" | "clean" | "unknown" | "error" | "not_applicable";
+export type SecurityOutcome = "vulnerable" | "observed" | "clean" | "unknown" | "error" | "not_applicable";
 export type RunMode = "live" | "recorded" | "playback";
 export type EventKind = "message" | "operation" | "memory" | "evidence" | "error";
 

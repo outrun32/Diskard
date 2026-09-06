@@ -7,6 +7,7 @@ export const activeStatus = (s: string) => ["queued", "running", "cancelling"].i
 function outcome(v: unknown): SecurityOutcome {
   const s = String(v).toLowerCase();
   if (["vulnerable", "fail"].includes(s)) return "vulnerable";
+  if (s === "observed") return "observed";
   if (["clean", "pass"].includes(s)) return "clean";
   if (s === "error" || s === "not_applicable") return s;
   return "unknown";

@@ -24,7 +24,7 @@ const statuses:Record<string,string> = {queued:"Queued",running:"Running",cancel
 function ResultRows({runs}:{runs:RunSummary[]}) {
   return <div className="overview-results">{runs.map(run=><Link key={run.id} className="overview-run" to={`/runs/${encodeURIComponent(run.id)}/trace`}>
     <div><strong>{run.title}</strong><span>{run.target} · {run.shortId}{run.demo||run.origin==="demo"?" · Synthetic fixture":""}</span></div>
-    <div><span>{statuses[run.status]}</span><small>{run.outcome==="vulnerable"?"Confirmed finding":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><ArrowRight size={16}/>
+    <div><span>{statuses[run.status]}</span><small>{run.outcome==="vulnerable"?"Confirmed finding":run.outcome==="observed"?"Evidence observed":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><ArrowRight size={16}/>
   </Link>)}</div>;
 }
 export default function OverviewPage() {
