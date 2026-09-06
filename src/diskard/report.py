@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from xml.etree import ElementTree
 
-from diskard.models import Finding, ReplayManifest
+from diskard.models import EvidenceBundle, Finding, ReplayManifest
 
 Confidence = Literal["observed", "correlated", "proven"]
 FindingStatus = Literal["confirmed", "observed", "inconclusive"]
@@ -156,6 +156,7 @@ def build_finding(
     details: dict[str, Any],
     replay: ReplayManifest,
     status: FindingStatus = "confirmed",
+    evidence: EvidenceBundle | None = None,
 ) -> Finding:
     return Finding(
         id=run_id,
@@ -167,6 +168,7 @@ def build_finding(
         message=message,
         stage_verdicts=stage_verdicts_for(details),
         details=details,
+        evidence=evidence,
         replay=replay,
     )
 

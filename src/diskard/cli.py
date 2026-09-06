@@ -137,7 +137,8 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
 
     from diskard.config import load_config
     from diskard.connectors import load_connector_factory, make_connector_dispatch
-    from diskard.models import ReplayManifest
+    from diskard.evidence import attacker_feedback_from_bundle, evidence_bundle_from_details
+    from diskard.models import ReplayManifest, RunPresentation
     from diskard.report import (
         aggregate_run_metrics,
         build_finding,
@@ -328,6 +329,12 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
             if step.error is not None:
                 raise RuntimeError(step.error.summary())
             details = step.results[0].details
+            evidence = evidence_bundle_from_details(
+                run_id=attempt_id,
+                mode=config.evidence.mode,
+                details=details,
+                attempt=index,
+            )
             return AttemptResult(
                 index=index,
                 message=message,
@@ -338,6 +345,8 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 persisted=bool(details.get("persisted")),
                 reply=details.get("vulnerable_reply") or details.get("victim_reply") or "",
                 session_id=attempt_id,
+                feedback=attacker_feedback_from_bundle(attempt=index, bundle=evidence),
+                terminal_goal_reached=step.results[0].status.value == "fail",
             )
 
         try:
@@ -365,6 +374,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     repeat_count = args.repeats or config.execution.repeats
     run_records: list[dict] = []
     started_at = datetime.now(UTC)
+    cleanup_error = None
     try:
         for repeat_index in range(1, repeat_count + 1):
             scenario_run_id = f"{run_id}-{repeat_index}"
@@ -385,6 +395,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                             "check_status": "error",
                             "message": step.error.summary(),
                             "details": {},
+                            "evidence": None,
                             "finding": None,
                         }
                     )
@@ -393,6 +404,12 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 check_result = step.results[0]
                 confirmed = check_result.status.value == "fail"
                 observed = has_security_observation(check_result.details)
+                evidence = evidence_bundle_from_details(
+                    run_id=scenario_run_id,
+                    mode=config.evidence.mode,
+                    details=check_result.details,
+                    attempt=repeat_index,
+                )
                 finding = None
                 if confirmed or observed:
                     finding = build_finding(
@@ -417,6 +434,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                             },
                         ),
                         status="confirmed" if confirmed else "observed",
+                        evidence=evidence,
                     )
                 run_records.append(
                     {
@@ -426,6 +444,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                         "check_status": check_result.status.value,
                         "message": check_result.message,
                         "details": check_result.details,
+                        "evidence": evidence.model_dump(mode="json"),
                         "finding": finding.model_dump() if finding else None,
                     }
                 )
@@ -438,6 +457,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                         "check_status": "error",
                         "message": str(exc),
                         "details": {},
+                        "evidence": None,
                         "finding": None,
                     }
                 )
@@ -452,6 +472,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                     "check_status": "error",
                     "message": cleanup_error,
                     "details": {},
+                    "evidence": None,
                     "finding": None,
                 }
             )
@@ -512,6 +533,28 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
         details=representative["details"],
         finding=representative["finding"],
     )
+    timeline = [
+        event
+        for run in run_records
+        if run.get("evidence") is not None
+        for event in run["evidence"]["events"]
+    ]
+    attempt_feedback = (
+        [attempt.feedback for attempt in campaign.attempts if attempt.feedback is not None]
+        if campaign is not None
+        else []
+    )
+    presentation = RunPresentation(
+        timeline=timeline,
+        stages=(representative.get("evidence") or {}).get("stage_verdicts", {}),
+        attempts=attempt_feedback,
+        metrics=metrics,
+        isolation={
+            "enabled": isolation is not None,
+            "verified": cleanup_error is None if isolation is not None else None,
+        },
+    )
+    envelope["presentation"] = presentation.model_dump(mode="json")
     result_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False, default=str))
     junit_path = run_dir / "junit.xml"
     junit_path.write_text(render_junit_xml(suite_name=f"diskard.{args.attack}", runs=run_records))

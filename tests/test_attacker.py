@@ -22,6 +22,7 @@ from diskard.attacker import (
     run_agentic_search,
 )
 from diskard.config import AttackerConfig
+from diskard.models import AttackerFeedback
 
 
 class FakeGenerator:
@@ -112,8 +113,11 @@ def test_build_user_prompt_includes_prior_attempts_and_params():
     )
     assert "target_ticker = SVFN-01" in prompt
     assert "target_isin = RU000A1FICT9" in prompt
-    assert "неудача" in prompt
+    assert "ЦЕЛЬ ПОКА НЕ ДОСТИГНУТА" in prompt
     assert "test message" in prompt
+    assert "no." not in prompt
+    assert '"fact": "..."' not in prompt
+    assert "normalized" not in prompt.lower()
 
 
 def test_campaign_to_dict_shape_is_objective_agnostic():
@@ -141,6 +145,8 @@ def test_campaign_to_dict_shape_is_objective_agnostic():
     assert payload["winning_index"] == 1
     assert payload["winning_message"] == "winning wording"
     assert len(payload["attempts"]) == 1
+    assert "reply" not in payload["attempts"][0]
+    assert "facts" not in payload["attempts"][0]
 
 
 def test_campaign_not_succeeded_has_no_winning_message():
@@ -199,6 +205,53 @@ async def test_agentic_search_stops_after_a_persisting_attempt():
     assert seen == [1, 2]
     assert campaign.succeeded is True
     assert campaign.winning_message == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_agentic_search_continues_past_persistence_until_terminal_goal():
+    generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
+    attacker = AttackerLLM(generator=generator)
+    seen: list[int] = []
+
+    async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+        seen.append(index)
+        terminal = index == 2
+        feedback = AttackerFeedback(
+            attempt=index,
+            stage_verdicts={
+                "W1_write_accepted": True,
+                "W2_persisted": True,
+                "E3_externalized": terminal,
+            },
+            observations=[],
+            failure_reason="terminal_goal_reached" if terminal else "persisted_not_retrieved",
+            allowed_adaptations=[] if terminal else ["trigger"],
+        )
+        return AttemptResult(
+            index=index,
+            message=message,
+            idea=idea,
+            facts=[],
+            new_records=[{}],
+            concrete_records=[{}],
+            persisted=True,
+            reply="not exposed to feedback",
+            session_id=f"search-{index}",
+            feedback=feedback,
+            terminal_goal_reached=terminal,
+        )
+
+    campaign = await run_agentic_search(
+        objective=ATTACK_OBJECTIVES["cross-user-global-policy-poisoning"],
+        params={"data_subject_cus": "1003"},
+        attacker=attacker,
+        execute_attempt=execute_attempt,
+        max_attempts=4,
+    )
+
+    assert seen == [1, 2]
+    assert campaign.terminal_succeeded is True
+    assert campaign.terminal_index == 2
 
 
 def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
