@@ -365,12 +365,12 @@ class ConsoleRuntime:
             raise ValueError((attack_capability or {}).get("reason", "attack is unavailable"))
         if driver_capability is None or not driver_capability.get("available"):
             raise ValueError((driver_capability or {}).get("reason", "driver is unavailable"))
-        if int(options.get("budget", 1)) != 1:
-            raise ValueError("fixed-input driver requires budget=1; no search is performed")
-        if int(options.get("repeat", 1)) != 1:
-            raise ValueError(
-                "repeat is limited to 1 until the bridge exposes repeat-safe orchestration"
-            )
+        budget = int(options.get("budget", 1))
+        repeat = int(options.get("repeat", 1))
+        if budget < 1 or budget > 20 or repeat != 1:
+            raise ValueError("budget must be between 1 and 20; repeat is fixed at 1")
+        if driver == "template" and budget != 1:
+            raise ValueError("fixed-input driver requires budget=1")
         run_id = uuid4().hex
         manifest = {
             "schema_version": 1,

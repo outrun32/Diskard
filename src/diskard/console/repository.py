@@ -472,7 +472,11 @@ class RunStore:
                     origin="console-check",
                     attack=attack,
                     driver=driver,
-                    options={"budget": 1, "repeat": 1, "check_id": check_id},
+                    options={
+                        "budget": 6 if driver == "llm-auto-attacker" else 1,
+                        "repeat": 1,
+                        "check_id": check_id,
+                    },
                     source_sha=source_sha,
                     connection=connection,
                 )

@@ -32,6 +32,15 @@ def profile() -> TargetProfile:
     )
 
 
+def test_adaptive_driver_is_available_for_azure_attacker(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "configured")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://azure.example/models/chat/completions")
+    adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
+    assert adaptive["id"] == "llm-auto-attacker"
+    assert adaptive["available"] is True
+
+
 @pytest.mark.asyncio
 async def test_investment_target_validation_uses_healthz(monkeypatch):
     requested: list[str] = []

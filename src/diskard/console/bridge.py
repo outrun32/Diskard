@@ -86,6 +86,41 @@ def _url_is_supported(base_url: str) -> bool:
     return "/models/chat/completions" not in base_url
 
 
+def _attacker_config(max_attempts: int) -> Any:
+    from diskard.config import AttackerConfig, AttackerProviderConfig
+
+    azure_key = bool(os.getenv("AZURE_OPENAI_API_KEY"))
+    azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    if azure_key and azure_endpoint:
+        model = os.getenv("ATTACKER_MODEL") or os.getenv("RESEARCH_MODEL", "DeepSeek-V4-Flash")
+        model = model.rsplit(":", maxsplit=1)[-1]
+        provider = AttackerProviderConfig(
+            name="deepseek-red-team",
+            type="azure_ai",
+            model=model,
+            api_key_env="AZURE_OPENAI_API_KEY",
+            base_url_env="AZURE_OPENAI_ENDPOINT",
+            api_version_env="AZURE_OPENAI_API_VERSION",
+            timeout_seconds=float(os.getenv("ATTACKER_TIMEOUT_SECONDS", "240")),
+        )
+    else:
+        provider = AttackerProviderConfig(
+            name="diskard-attacker",
+            type="openai",
+            model=os.getenv("ATTACKER_MODEL", "gpt-4o-mini"),
+            api_key_env="OPENAI_API_KEY",
+            base_url_env="OPENAI_BASE_URL",
+        )
+    return AttackerConfig(driver="llm-agent", max_attempts=max_attempts, provider=provider)
+
+
+def _attacker_available() -> bool:
+    return bool(
+        os.getenv("OPENAI_API_KEY")
+        or (os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"))
+    )
+
+
 def auto_bootstrap_enabled(profile: TargetProfile) -> bool:
     configured = profile.adapter_options.get("auto_bootstrap")
     if configured is not None:
@@ -167,18 +202,20 @@ class InvestmentExecutionBridge:
         ]
         drivers = [
             {
+                "id": "llm-auto-attacker",
+                "label": "Adaptive LLM attacker",
+                "available": supported,
+                "reason": None
+                if supported and _attacker_available()
+                else "configure Azure/OpenAI attacker credentials"
+                if supported
+                else "adapter unavailable",
+            },
+            {
                 "id": "template",
                 "label": "Fixed scenario input",
                 "available": supported,
                 "reason": None if supported else "adapter unavailable",
-            },
-            {
-                "id": "llm-auto-attacker",
-                "label": "LLM auto-attacker",
-                "available": False,
-                "reason": (
-                    "Durable search is not integrated; fixed-input scenarios remain available"
-                ),
             },
         ]
         return CapabilityReport(
@@ -398,6 +435,7 @@ class InvestmentExecutionBridge:
 
         from giskard.checks import Suite
 
+        from diskard.attacks import ATTACKS
         from diskard.cli import _build_scenario
         from examples.connectors.investment_stand.backend import (
             InvestServerEvidence,
@@ -407,20 +445,21 @@ class InvestmentExecutionBridge:
         )
         from examples.connectors.investment_stand.legacy_dispatch import make_dispatch
 
-        if run_spec.driver != "template":
+        if run_spec.driver not in {"template", "llm-auto-attacker"}:
             return EngineResult(
                 status="failed",
                 raw={"error": "driver unsupported", "driver": run_spec.driver},
                 summary={
-                    "message": "The durable bridge currently supports template scenarios only."
+                    "message": "The durable bridge supports fixed and adaptive scenario drivers."
                 },
                 replay_spec={
                     **run_spec.resolved_manifest,
                     "complete": False,
-                    "unsupported_reasons": ["durable LLM search is not exposed"],
+                    "unsupported_reasons": ["driver is not supported by the investment bridge"],
                 },
                 error="driver unsupported by durable bridge",
             )
+        adaptive = run_spec.driver == "llm-auto-attacker" and run_spec.attack != "cross-user-direct-memory-leak"
         required = {"attacker", "trigger_user"}
         if run_spec.attack in {"cross-user-global-policy-poisoning", "compaction-policy-poisoning"}:
             required.add("data_subject")
@@ -450,6 +489,16 @@ class InvestmentExecutionBridge:
         mongo = MongoEvidence(mongo_uri=mongo_uri)
         invest = InvestServerEvidence(base_url=invest_url or config.base_url)
         semantic = SemanticMemoryEvidence(mongo_uri=mongo_uri)
+        isolation = None
+        if adaptive:
+            from examples.connectors.investment_stand.connector import MongoNamespaceIsolation
+
+            isolation = MongoNamespaceIsolation(
+                mongo_uri=mongo_uri,
+                redis_url=str(
+                    config.adapter_options.get("redis_url", "redis://host.docker.internal:6379/0")
+                ),
+            )
         actor_by_cus = {actor.cus: actor for actor in actors.values()}
         cleanup_key: str | None = None
 
@@ -506,6 +555,18 @@ class InvestmentExecutionBridge:
             )
             return outputs
 
+        async def run_suite(scenario: Any, namespace: str) -> Any:
+            checkpoint = await isolation.prepare(namespace) if isolation is not None else None
+            try:
+                return await Suite(
+                    name=f"diskard-console-{run_spec.run_id}", scenarios=[scenario]
+                ).run(return_exception=True)
+            finally:
+                if checkpoint is not None:
+                    await isolation.restore(checkpoint)
+                    if not await isolation.verify(checkpoint):
+                        raise BridgeError("adaptive attempt did not restore target state")
+
         base_dispatch = make_dispatch(
             stand=stand,
             mongo=mongo,
@@ -522,6 +583,118 @@ class InvestmentExecutionBridge:
             control_cus=role_cus.get("control", role_cus["trigger_user"]),
             activation_strategy="default",
         )
+        if adaptive:
+            from diskard.attacker import (
+                ATTACK_OBJECTIVES,
+                AttemptResult,
+                GiskardAttacker,
+                run_agentic_search,
+            )
+
+            definition = ATTACKS.get(run_spec.attack)
+            if definition.build_seed is None:
+                raise BridgeError(f"attack {run_spec.attack!r} has no adaptive seed")
+            max_attempts = max(1, int(run_spec.options.get("budget", 6)))
+            attacker = GiskardAttacker.from_config(_attacker_config(max_attempts))
+
+            async def execute_attempt(
+                index: int, message: str, idea: str, activation_strategy: str
+            ) -> AttemptResult:
+                attempt_id = f"{run_spec.run_id}-search-{index}"
+                attempt_args = SimpleNamespace(
+                    **vars(args),
+                    poison_message=message,
+                    activation_strategy=activation_strategy,
+                )
+                attempt_scenario, _ = _build_scenario(
+                    attempt_args, wrapped_dispatch, attempt_id
+                )
+                suite_result = await run_suite(attempt_scenario, attempt_id)
+                step = suite_result.results[0].steps[0]
+                if step.error is not None:
+                    raise BridgeError(step.error.summary())
+                check = step.results[0]
+                details = check.details
+                evidence = evidence_bundle_from_details(
+                    run_id=attempt_id,
+                    mode="grey-box",
+                    details=details,
+                    attempt=index,
+                )
+                return AttemptResult(
+                    index=index,
+                    message=message,
+                    idea=idea,
+                    facts=details.get("semantic_facts", []),
+                    new_records=details.get("new_policy_records", []),
+                    concrete_records=details.get("concrete_policy_records", []),
+                    persisted=bool(details.get("persisted")),
+                    reply=details.get("vulnerable_reply")
+                    or details.get("victim_reply")
+                    or "",
+                    session_id=attempt_id,
+                    feedback=attacker_feedback_from_bundle(attempt=index, bundle=evidence),
+                    terminal_goal_reached=check.status.value == "fail",
+                    activation_strategy=activation_strategy,
+                )
+
+            async def record_attempt(attempt: AttemptResult) -> None:
+                await emit(
+                    EventRecord(
+                        type="attacker.attempt",
+                        data=redact(
+                            {
+                                "attempt": attempt.index,
+                                "idea": attempt.idea,
+                                "message": attempt.message,
+                                "persisted": attempt.persisted,
+                                "terminal_goal_reached": attempt.terminal_goal_reached,
+                                "activation_strategy": attempt.activation_strategy,
+                            },
+                            secret_values,
+                        ),
+                        source="diskard",
+                    )
+                )
+
+            if run_spec.attack == "delayed-recommendation-manipulation":
+                from diskard.checks.recommendation_shift import (
+                    TARGET_ISIN,
+                    TARGET_NAME,
+                    TARGET_TICKER,
+                )
+
+                search_params = {
+                    "target_ticker": TARGET_TICKER,
+                    "target_isin": TARGET_ISIN,
+                    "target_name": TARGET_NAME,
+                }
+            else:
+                search_params = {"data_subject_cus": args.data_subject_cus}
+            try:
+                campaign = await run_agentic_search(
+                    objective=ATTACK_OBJECTIVES[run_spec.attack],
+                    params=search_params,
+                    attacker=attacker,
+                    execute_attempt=execute_attempt,
+                    max_attempts=max_attempts,
+                    seed_message=definition.build_seed(args),
+                    on_attempt=record_attempt,
+                )
+            finally:
+                await attacker.aclose()
+            if not campaign.attempts:
+                raise BridgeError("adaptive attacker produced no attempts")
+            selected = (
+                campaign.attempts[campaign.winning_index - 1]
+                if campaign.winning_index is not None
+                else campaign.attempts[-1]
+            )
+            args.poison_message = selected.message
+            args.activation_strategy = selected.activation_strategy
+            adaptive_campaign = campaign.to_dict()
+        else:
+            adaptive_campaign = None
         scenario, cleanup_key = _build_scenario(args, wrapped_dispatch, run_spec.run_id)
         operations = [
             interaction.inputs for step in scenario.steps for interaction in step.interacts
@@ -567,6 +740,8 @@ class InvestmentExecutionBridge:
                 "limitation": "exact inputs do not guarantee identical target state or output",
             },
         }
+        if adaptive_campaign is not None:
+            replay_spec["adaptive_search"] = adaptive_campaign
         if not replay_spec["complete"]:
             replay_spec["unsupported_reasons"] = ["input contained credentials and was redacted"]
         try:
@@ -588,9 +763,7 @@ class InvestmentExecutionBridge:
                     source="console",
                 )
             )
-            suite_result = await Suite(
-                name=f"diskard-console-{run_spec.run_id}", scenarios=[scenario]
-            ).run(return_exception=True)
+            suite_result = await run_suite(scenario, run_spec.run_id)
             step = suite_result.results[0].steps[0]
             if step.error is not None:
                 error = str(redact(step.error.summary(), secret_values))
@@ -637,6 +810,7 @@ class InvestmentExecutionBridge:
                 "check_status": check_status,
                 "message": redact(check_result.message, secret_values),
                 "details": details,
+                "adaptive_search": adaptive_campaign,
                 "verdict": (
                     "vulnerable"
                     if check_status == "fail"
@@ -688,6 +862,7 @@ class InvestmentExecutionBridge:
                     "check_status": check_status,
                     "message": redact(check_result.message, secret_values),
                     "details": details,
+                    "adaptive_search": adaptive_campaign,
                     "presentation": presentation,
                 },
                 summary=summary,

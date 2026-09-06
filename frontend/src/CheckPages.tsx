@@ -16,11 +16,11 @@ export function LaunchCheckPage() {
   const selected=target;
   const catalog=useQuery({queryKey:["catalog",selected],queryFn:({signal})=>getCatalog(selected,signal),enabled:!!selected});
   const available=catalog.data?.attacks.filter(a=>a.available)??[];
-  const driver=catalog.data?.drivers.find(d=>d.available)?.id;
+  const driver=catalog.data?.drivers.find(d=>d.available&&d.id==="llm-auto-attacker")?.id??catalog.data?.drivers.find(d=>d.available)?.id;
   const chosen=method==="full"?available.map(a=>a.id):[method];
   const mutation=useMutation({mutationFn:async()=>{
     if(method==="full")return {kind:"check",result:await request("/api/v1/checks",{method:"POST",body:JSON.stringify({profile_id:selected,attacks:chosen,driver,submission_id:submission})}) as {id:string}};
-    return {kind:"run",result:await createRun({profile_id:selected,attack:method,driver:driver!,budget:1,repeat:1,submission_id:submission})};
+    return {kind:"run",result:await createRun({profile_id:selected,attack:method,driver:driver!,budget:driver==="llm-auto-attacker"?6:1,repeat:1,submission_id:submission})};
   },onSuccess:({kind,result})=>{void cache.invalidateQueries({queryKey:["checks"]});void cache.invalidateQueries({queryKey:["runs"]});void cache.invalidateQueries({queryKey:["overview"]});navigate(kind==="check"?"/checks/"+result.id:"/runs/"+result.id+"/trace");}});
   return <div><div className="page-header"><div><h1>{t("launchTitle")}</h1><p>{t("launchDescription")}</p></div></div>
     {profiles.isError?<Failure error={profiles.error}/>:profiles.isPending?<p>{t("loadingTargets")}</p>:!profiles.data.length?<section className="overview-start"><h2>{t("connectFirst")}</h2><Link className="button button-primary" to="/targets/new">{t("addTargetUrl")}</Link></section>:<form className="launch-form" onSubmit={e=>{e.preventDefault();if(!mutation.isPending&&!DEMO_MODE)mutation.mutate();}}>
