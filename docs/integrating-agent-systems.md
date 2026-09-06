@@ -372,6 +372,15 @@ uv run --extra investment-stand python scripts/controlled_live_validation.py \
   --include-failure-path
 ```
 
+To validate the adaptive driver for one supported family while keeping console output sanitized:
+
+```bash
+uv run --extra investment-stand --extra llm python scripts/controlled_live_validation.py \
+  --driver llm-agent \
+  --max-attempts 6 \
+  --repeats 5
+```
+
 ## 12. Context checklist for coding agents
 
 Before changing an integration, read:

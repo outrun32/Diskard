@@ -145,6 +145,8 @@ def _safe_result(result_path: Path | None) -> dict[str, Any] | None:
 def run_campaign(
     *,
     attack: str,
+    driver: str,
+    max_attempts: int,
     repeats: int,
     config_path: Path,
     repo_root: Path,
@@ -166,7 +168,9 @@ def run_campaign(
         "--attack",
         attack,
         "--driver",
-        "deterministic",
+        driver,
+        "--max-attempts",
+        str(max_attempts),
         "--repeats",
         str(repeats),
     ]
@@ -301,6 +305,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also validate restore after a controlled local exception.",
     )
     parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument(
+        "--driver",
+        choices=["deterministic", "llm-agent"],
+        default="deterministic",
+    )
+    parser.add_argument("--max-attempts", type=int, default=6)
     parser.add_argument("--mongo-db", default="agent_memory")
     parser.add_argument("--mongo-uri", default=None)
     parser.add_argument("--redis-url", default=None)
@@ -311,6 +321,10 @@ def main() -> int:
     args = build_parser().parse_args()
     if args.repeats < 1:
         raise SystemExit("--repeats must be at least 1")
+    if args.max_attempts < 1:
+        raise SystemExit("--max-attempts must be at least 1")
+    if args.all_attacks and args.driver == "llm-agent":
+        raise SystemExit("--all-attacks supports the deterministic driver only")
 
     repo_root = Path(__file__).resolve().parent.parent
     config_path = args.config.resolve()
@@ -328,6 +342,8 @@ def main() -> int:
     campaigns = [
         run_campaign(
             attack=attack,
+            driver=args.driver,
+            max_attempts=args.max_attempts,
             repeats=args.repeats,
             config_path=config_path,
             repo_root=repo_root,
@@ -359,7 +375,7 @@ def main() -> int:
         "version": 2,
         "started_at": started_at.isoformat(),
         "completed_at": datetime.now(UTC).isoformat(),
-        "driver": "deterministic",
+        "driver": args.driver,
         "requested_repeats": args.repeats,
         "campaigns": campaigns,
         "failure_path": failure_path,

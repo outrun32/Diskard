@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.controlled_live_validation import (  # noqa: E402
     MUTABLE_COLLECTIONS,
     _safe_result,
+    build_parser,
     compare_state,
 )
 
@@ -69,3 +70,13 @@ def test_safe_result_whitelists_aggregate_fields(tmp_path):
     assert "private" not in serialized
     assert "unexpected" not in serialized
     assert safe["metrics"]["total_runs"] == 2
+
+
+def test_parser_accepts_sanitized_adaptive_validation_options():
+    args = build_parser().parse_args(
+        ["--driver", "llm-agent", "--max-attempts", "4", "--repeats", "3"]
+    )
+
+    assert args.driver == "llm-agent"
+    assert args.max_attempts == 4
+    assert args.repeats == 3
