@@ -25,6 +25,7 @@ from diskard.console.repository import (
     make_engine,
     migrate,
 )
+from diskard.console.redaction import redact
 from diskard.console.settings import ConsoleSettings
 
 log = logging.getLogger("diskard.console")
@@ -560,7 +561,11 @@ class ConsoleRuntime:
         except Exception as exc:  # noqa: BLE001
             # Detailed operation errors have already been redacted by the bridge.
             # Unknown exceptions may contain unlabelled provider credentials.
-            error = f"Execution failed ({type(exc).__name__}); inspect persisted operation events"
+            detail = str(redact(str(exc))).strip()
+            error = f"Execution failed ({type(exc).__name__})"
+            if detail:
+                error += f": {detail}"
+            log.exception("Run execution failed", extra={"run_id": run_id})
             try:
                 store.append_event(
                     run_id, EventRecord(type="executor.error", data={"error": error})

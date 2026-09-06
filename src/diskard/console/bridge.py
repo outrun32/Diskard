@@ -602,9 +602,11 @@ class InvestmentExecutionBridge:
             ) -> AttemptResult:
                 attempt_id = f"{run_spec.run_id}-search-{index}"
                 attempt_args = SimpleNamespace(
-                    **vars(args),
-                    poison_message=message,
-                    activation_strategy=activation_strategy,
+                    **{
+                        **vars(args),
+                        "poison_message": message,
+                        "activation_strategy": activation_strategy,
+                    }
                 )
                 attempt_scenario, _ = _build_scenario(
                     attempt_args, wrapped_dispatch, attempt_id
