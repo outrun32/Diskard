@@ -277,19 +277,25 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
 
 def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
     configured = {}
+    generated = {}
     fake_generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
 
     def configure(name, provider, **options):
         configured.update(name=name, provider=provider, options=options)
 
+    def generator(model):
+        generated["model"] = model
+        return fake_generator
+
     monkeypatch.setattr("giskard.llm.configure", configure)
-    monkeypatch.setattr("giskard.agents.Generator", lambda model: fake_generator)
+    monkeypatch.setattr("giskard.agents.Generator", generator)
     monkeypatch.setenv("TEST_ATTACKER_KEY", "secret")
     monkeypatch.setenv(
         "TEST_ATTACKER_ENDPOINT",
         "https://example.services.ai.azure.com/models/chat/completions",
     )
     monkeypatch.setenv("TEST_ATTACKER_VERSION", "2024-05-01-preview")
+    monkeypatch.setenv("ATTACKER_MODEL", "openai:Alternative-Model")
     config = AttackerConfig.model_validate(
         {
             "driver": "llm-agent",
@@ -313,3 +319,4 @@ def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
     assert configured["options"]["api_key"] == "secret"
     assert configured["options"]["base_url"] == "https://example.services.ai.azure.com"
     assert configured["options"]["timeout"] == 180
+    assert generated["model"] == "deepseek-test/Alternative-Model"

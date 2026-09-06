@@ -98,11 +98,14 @@ def test_live_start_rejects_auto_attacker_for_non_family_one():
     assert "auto_attack_capable" in resp.text or "auto-attacker" in resp.text.lower()
 
 
-def test_auto_attacker_requires_provider_credentials():
+def test_provider_status_exposes_configuration_without_credentials():
     with _client() as client:
-        resp = client.post("/api/jobs/auto-attack", json={"max_attempts": 1})
-    assert resp.status_code == 503
-    assert "OPENAI_API_KEY" in resp.text
+        resp = client.get("/api/live/provider")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body) == {"available", "provider", "name", "model", "error"}
+    assert "api_key" not in resp.text.lower()
 
 
 def test_live_jobs_404_for_unknown_id():

@@ -420,6 +420,8 @@ class GiskardAttacker:
         model = model or os.environ.get("ATTACKER_MODEL", "gpt-4o-mini")
         if "/" in model:
             _model_provider, model = model.split("/", maxsplit=1)
+        elif ":" in model:
+            _model_provider, model = model.split(":", maxsplit=1)
 
         if provider == "azure_ai" and base_url:
             parsed = urlsplit(base_url)
@@ -474,12 +476,13 @@ class GiskardAttacker:
             )
         base_url = os.environ.get(provider.base_url_env) if provider.base_url_env else None
         api_version = os.environ.get(provider.api_version_env) if provider.api_version_env else None
+        model = os.environ.get("ATTACKER_MODEL", provider.model)
         return cls(
             provider=provider.type,
             provider_name=provider.name,
             api_key=api_key,
             base_url=base_url,
-            model=provider.model,
+            model=model,
             api_version=api_version,
             timeout_seconds=provider.timeout_seconds,
         )

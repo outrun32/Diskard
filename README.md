@@ -116,6 +116,9 @@ uv run diskard scan path/to/diskard.yaml \
 
 Provider secrets are read from the environment variable names stored in the
 configuration file. They are not included in model prompts or run manifests.
+The local UI reads only Diskard's own `.env`; copy `.env.example` to `.env` and
+fill the configured provider values there. Set `ATTACKER_MODEL` to override the
+fallback model from `diskard.yaml` without changing the connector profile.
 
 Every scan records `result.json` and `junit.xml` in its run directory. Confirmed findings can be rendered and a run can be repeated:
 

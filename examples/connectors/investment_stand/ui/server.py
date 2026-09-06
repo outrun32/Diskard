@@ -29,6 +29,7 @@ from pydantic import BaseModel
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLES_DIR = ROOT / "examples"
 IDENTITIES_CACHE = EXAMPLES_DIR / ".identities.json"
+CONNECTOR_CONFIG = EXAMPLES_DIR / "connectors" / "investment_stand" / "diskard.yaml"
 RECORDED_PRESENTATION = Path(__file__).parent / "fixtures" / "confirmed-lifecycle.json"
 RECORDED_REPLAY = Path(__file__).parent.parent / "demo" / "confirmed-replay.json"
 
@@ -51,6 +52,7 @@ from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_TICKER,
 )
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
+from diskard.config import load_config  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
@@ -189,6 +191,7 @@ class Ctx:
     attacker: AttackerLLM | None
     identities: dict[str, Actor]
     isolation: Any
+    attacker_info: dict[str, Any]
 
 
 ctx = Ctx()
@@ -222,7 +225,25 @@ async def lifespan(app: FastAPI):
     ctx.mongo = MongoEvidence()
     ctx.invest = InvestServerEvidence()
     ctx.semantic = SemanticMemoryEvidence()
-    ctx.attacker = AttackerLLM() if os.environ.get("OPENAI_API_KEY") else None
+    config = load_config(CONNECTOR_CONFIG)
+    provider = config.attacker.provider
+    configured_model = (
+        os.environ.get("ATTACKER_MODEL", provider.model) if provider is not None else None
+    )
+    ctx.attacker = None
+    ctx.attacker_info = {
+        "available": False,
+        "provider": provider.type if provider is not None else None,
+        "name": provider.name if provider is not None else None,
+        "model": configured_model,
+        "error": None,
+    }
+    if provider is not None and os.environ.get(provider.api_key_env):
+        try:
+            ctx.attacker = AttackerLLM.from_config(config.attacker)
+            ctx.attacker_info["available"] = True
+        except Exception as exc:  # noqa: BLE001 -- expose only the safe exception class
+            ctx.attacker_info["error"] = type(exc).__name__
     ctx.identities = {}
     ctx.isolation = create_isolation({})
     yield
@@ -244,7 +265,7 @@ async def _ensure_identities() -> dict[str, Actor]:
 
 def _require_attacker() -> AttackerLLM:
     if ctx.attacker is None:
-        raise RuntimeError("LLM auto-attacker requires OPENAI_API_KEY")
+        raise RuntimeError("configured model provider is unavailable")
     return ctx.attacker
 
 
@@ -723,7 +744,7 @@ async def start_repeats(req: RepeatsRequest):
 @app.post("/api/jobs/auto-attack")
 async def start_auto_attack(req: AutoAttackRequest):
     if ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "configured model provider is unavailable")
     job = _new_job("auto-attack")
     import asyncio
 
@@ -748,6 +769,11 @@ def get_job(job_id: str):
 class LiveStartRequest(BaseModel):
     attack: str
     driver: str = "template"
+
+
+@app.get("/api/live/provider")
+def get_live_provider():
+    return ctx.attacker_info
 
 
 @app.get("/api/live/attacks")
@@ -800,7 +826,7 @@ async def start_live(req: LiveStartRequest):
             "is a negative control on a different, correctly-scoped memory collection)",
         )
     if req.driver == "llm-auto-attacker" and ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "configured model provider is unavailable")
     job = _new_job("live")
     import asyncio
 
