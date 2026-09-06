@@ -67,3 +67,4 @@ attacker:
     api_key_env: AZURE_OPENAI_API_KEY
     base_url_env: AZURE_OPENAI_ENDPOINT
     api_version_env: AZURE_OPENAI_API_VERSION
+    timeout_seconds: 240

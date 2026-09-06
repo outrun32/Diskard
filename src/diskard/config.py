@@ -86,6 +86,7 @@ class AttackerProviderConfig(BaseModel):
     api_key_env: str
     base_url_env: str | None = None
     api_version_env: str | None = None
+    timeout_seconds: float = Field(default=240.0, gt=0)
 
 
 class AttackerConfig(BaseModel):

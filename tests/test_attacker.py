@@ -172,6 +172,7 @@ async def test_attacker_uses_giskard_generator_and_parses_structured_payload():
     assert "value" in sent_messages[0]["content"]
     assert generation_params.temperature == 0.9
     assert generation_params.max_tokens == 500
+    assert generation_params.timeout == 240.0
 
 
 @pytest.mark.asyncio
@@ -289,6 +290,7 @@ def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
                 "api_key_env": "TEST_ATTACKER_KEY",
                 "base_url_env": "TEST_ATTACKER_ENDPOINT",
                 "api_version_env": "TEST_ATTACKER_VERSION",
+                "timeout_seconds": 180,
             },
         }
     )
@@ -300,3 +302,4 @@ def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
     assert configured["provider"] == "azure_ai"
     assert configured["options"]["api_key"] == "secret"
     assert configured["options"]["base_url"] == "https://example.services.ai.azure.com"
+    assert configured["options"]["timeout"] == 180

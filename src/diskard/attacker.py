@@ -394,7 +394,9 @@ class GiskardAttacker:
         base_url: str | None = None,
         model: str | None = None,
         api_version: str | None = None,
+        timeout_seconds: float = 240.0,
     ) -> None:
+        self._timeout_seconds = timeout_seconds
         if generator is not None:
             self._generator = generator
             return
@@ -422,7 +424,10 @@ class GiskardAttacker:
             if api_version:
                 os.environ["AZURE_AI_API_VERSION"] = api_version
 
-        provider_options: dict[str, Any] = {"api_key": api_key}
+        provider_options: dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": timeout_seconds,
+        }
         if base_url:
             provider_options["base_url"] = base_url
         configure(provider_name, provider=provider, **provider_options)
@@ -438,7 +443,11 @@ class GiskardAttacker:
                 {"role": "system", "content": system_prompt.format(**params)},
                 {"role": "user", "content": _build_user_prompt(params, history)},
             ],
-            params=GenerationParams(temperature=0.9, max_tokens=500),
+            params=GenerationParams(
+                temperature=0.9,
+                max_tokens=500,
+                timeout=self._timeout_seconds,
+            ),
         )
         content = response.choices[0].message.content
         if not isinstance(content, str):
@@ -468,6 +477,7 @@ class GiskardAttacker:
             base_url=base_url,
             model=provider.model,
             api_version=api_version,
+            timeout_seconds=provider.timeout_seconds,
         )
 
 
