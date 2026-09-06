@@ -492,6 +492,7 @@ async def _live_run_body(
     attack: str,
     driver: str,
     replay_message: str | None = None,
+    memory_policy: str = "vulnerable",
 ) -> dict:
     """Job body for the live console -- reuses cli._build_scenario (same
     attack-family dispatch the CLI uses) and checks/*.py's own verdicts via
@@ -545,6 +546,7 @@ async def _live_run_body(
         victim_cus=VICTIM_CUS,
         data_subject_cus=DATA_SUBJECT_CUS,
         control_cus=CONTROL_CUS,
+        memory_policy=memory_policy,
     )
     if replay_message is not None:
         args.poison_message = replay_message
@@ -769,6 +771,7 @@ def get_job(job_id: str):
 class LiveStartRequest(BaseModel):
     attack: str
     driver: str = "template"
+    memory_policy: str = "vulnerable"
 
 
 @app.get("/api/live/provider")
@@ -827,11 +830,18 @@ async def start_live(req: LiveStartRequest):
         )
     if req.driver == "llm-auto-attacker" and ctx.attacker is None:
         raise HTTPException(503, "configured model provider is unavailable")
+    if req.memory_policy not in ("vulnerable", "protected"):
+        raise HTTPException(400, "memory_policy must be 'vulnerable' or 'protected'")
     job = _new_job("live")
     import asyncio
 
     asyncio.create_task(
-        _run_job(job, lambda j: _live_run_body(j, attack=req.attack, driver=req.driver))
+        _run_job(
+            job,
+            lambda j: _live_run_body(
+                j, attack=req.attack, driver=req.driver, memory_policy=req.memory_policy
+            ),
+        )
     )
     return {"job_id": job.id}
 

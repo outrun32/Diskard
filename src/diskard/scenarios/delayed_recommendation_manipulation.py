@@ -78,6 +78,7 @@ def build_delayed_recommendation_manipulation_scenario(
     run_id: str | None = None,
     poison_message: str | None = None,
     activation_strategy: str = "default",
+    memory_policy: str = "vulnerable",
 ) -> Scenario:
     """Build the delayed-recommendation-manipulation scenario. `control_cus`
     must be a fourth identity, distinct from poisoner/victim -- it asks the
@@ -145,6 +146,7 @@ def build_delayed_recommendation_manipulation_scenario(
             label="poison_finalize",
             actor_id=poisoner_cus,
             session_id=poison_session,
+            memory_policy=memory_policy,
         ),
         outputs=dispatch,
     )

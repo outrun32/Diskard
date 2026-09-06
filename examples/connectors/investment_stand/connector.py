@@ -124,6 +124,7 @@ class InvestmentStandConnector:
             response = await self._client.post(
                 f"{self._base_url}/v1/sessions/{operation.session_id}/finalize",
                 headers=headers,
+                params={"memory_policy": operation.payload.get("memory_policy", "protected")},
             )
             response.raise_for_status()
             return ConnectorResponse(data=response.json())

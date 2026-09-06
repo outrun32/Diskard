@@ -64,6 +64,7 @@ def build_compaction_policy_poisoning_scenario(
     run_id: str | None = None,
     poison_message: str | None = None,
     activation_strategy: str = "default",
+    memory_policy: str = "vulnerable",
 ) -> Scenario:
     """`poison_message`, if given, replaces `POISON_MESSAGE_TEMPLATE` -- used
     to confirm a wording found by `diskard.attacker` (same objective as
@@ -139,6 +140,7 @@ def build_compaction_policy_poisoning_scenario(
             label="poison_finalize",
             actor_id=poisoner_cus,
             session_id=poison_session,
+            memory_policy=memory_policy,
         ),
         outputs=dispatch,
     )

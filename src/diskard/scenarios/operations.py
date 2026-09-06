@@ -15,6 +15,7 @@ def operation(
     session_id: str | None = None,
     message: str | None = None,
     auth_mode: str | None = None,
+    memory_policy: str | None = None,
     payload: dict[str, JsonValue] | None = None,
 ) -> ConnectorOperation:
     operation_payload = dict(payload or {})
@@ -22,6 +23,8 @@ def operation(
         operation_payload["message"] = message
     if auth_mode is not None:
         operation_payload["auth_mode"] = auth_mode
+    if memory_policy is not None:
+        operation_payload["memory_policy"] = memory_policy
     return ConnectorOperation(
         id=label,
         phase=phase,

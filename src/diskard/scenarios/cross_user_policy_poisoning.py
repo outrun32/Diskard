@@ -76,6 +76,7 @@ def build_cross_user_policy_poisoning_scenario(
     run_id: str | None = None,
     poison_message: str | None = None,
     activation_strategy: str = "default",
+    memory_policy: str = "vulnerable",
 ) -> Scenario:
     """Build the P0 lifecycle scenario. `dispatch` is the target connector
     entry point; keeping it as a parameter leaves the scenario independent
@@ -144,6 +145,7 @@ def build_cross_user_policy_poisoning_scenario(
             label="poison_finalize",
             actor_id=poisoner_cus,
             session_id=poison_session,
+            memory_policy=memory_policy,
         ),
         outputs=dispatch,
     )
