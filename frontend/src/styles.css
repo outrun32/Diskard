@@ -332,10 +332,6 @@ h1,h2,h3,p,code,pre,dd { overflow-wrap: anywhere; }
 .sidebar-toggle { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ink-muted); background: transparent; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 12px; }
 .sidebar-toggle:hover { color: var(--ink); background: rgba(255,255,255,.05); }
 .topbar { justify-content: flex-end; }
-.language-label { color: var(--ink-muted); font-size: 11px; }
-.language-switch { display: inline-flex; padding: 2px; background: var(--surface-deep); border: 1px solid var(--line); border-radius: 8px; }
-.language-switch button { min-width: 36px; min-height: 28px; padding: 0 8px; color: var(--ink-muted); background: transparent; border: 0; border-radius: 6px; font-size: 11px; font-weight: 700; }
-.language-switch button.active { color: var(--ink); background: var(--surface-raised); }
 .launch-form { max-width: 760px; }
 .launch-form .form-panel { display: grid; gap: 24px; }
 .field-with-action { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; }
@@ -345,6 +341,13 @@ h1,h2,h3,p,code,pre,dd { overflow-wrap: anywhere; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading h2 { margin: 0; font-size: 18px; }
 .individual-runs-heading { margin-bottom: 14px; }
+.trace-stream-copy { display: grid; gap: 4px; min-width: 0; }
+.trace-stream-status { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 13px; font-weight: 650; }
+.trace-stream-status::before { content: ""; width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-muted); }
+.trace-stream-status-live { color: var(--accent); }
+.trace-stream-status-live::before { background: var(--accent); box-shadow: 0 0 0 4px rgba(119,217,239,.12); }
+.trace-stream-copy p { margin: 0; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.live-pane-note,.memory-live-note { display: block; margin-top: 5px; color: var(--accent); font: 11px ui-monospace, monospace; }
 
 @media (max-width: 620px) {
  .sidebar { left: 0; visibility: visible !important; width: 64px; padding-inline: 7px; }

@@ -1,5 +1,5 @@
 import { QueryClient,QueryClientProvider } from "@tanstack/react-query";
-import { render,screen,waitFor,within } from "@testing-library/react";
+import { cleanup,render,screen,waitFor,within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe,it,expect,vi,beforeEach,afterEach } from "vitest";
@@ -26,15 +26,15 @@ beforeEach(()=>{
  return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});
  });vi.stubGlobal("fetch",fetchMock);
 });
-afterEach(()=>{clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals();});
 describe("operator journey using actual API shapes",()=>{
  it("shows real history and filters loaded records",async()=>{
- mount("/runs");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.queryByText(/Демонстрационный режим/)).not.toBeInTheDocument();
+ mount("/runs");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.queryByText(/Демонстрационный режим/)).not.toBeInTheDocument();expect(screen.queryByRole("group",{name:"Language"})).not.toBeInTheDocument();
  expect(screen.getByRole("button",{name:"New run"})).toBeInTheDocument();
  await userEvent.type(screen.getByLabelText("Search runs"),"missing");expect(await screen.findByText("No matches")).toBeInTheDocument();
  });
  it("renders long untrusted messages as text, filters events, and selects memory",async()=>{
- mount("/runs/real-run/trace");const row=await screen.findByRole("button",{name:/memory.finalize/});await userEvent.click(row);expect(screen.getByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();
+ mount("/runs/real-run/trace");expect(await screen.findByRole("button",{name:/operation-3/})).toHaveAttribute("aria-pressed","true");const row=await screen.findByRole("button",{name:/memory.finalize/});await userEvent.click(row);expect(screen.getByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();
  await userEvent.type(screen.getByLabelText("Search events"),"operation-1");expect(screen.queryByRole("button",{name:/memory.finalize/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:/operation-1/}));expect(document.querySelector("script")).toBeNull();expect(document.querySelector(".message-detail pre")?.textContent).toBe(hostile);
  });
