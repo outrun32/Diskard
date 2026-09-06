@@ -364,6 +364,14 @@ uv run --extra investment-stand python scripts/controlled_live_validation.py
 
 It writes full subprocess output to an ignored local file and prints only exit status, aggregate metrics, collection counts, and equality flags. Share `summary.json`, not `scan.log`, when reviewing the result.
 
+To cover every built-in family plus the controlled exception path:
+
+```bash
+uv run --extra investment-stand python scripts/controlled_live_validation.py \
+  --all-attacks \
+  --include-failure-path
+```
+
 ## 12. Context checklist for coding agents
 
 Before changing an integration, read:

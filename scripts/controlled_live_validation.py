@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import subprocess
@@ -11,6 +12,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import yaml
 from bson import json_util
@@ -34,6 +36,12 @@ SAFE_METRICS = (
     "end_to_end_asr",
     "observation_rate",
     "infrastructure_error_rate",
+)
+ALL_ATTACKS = (
+    "cross-user-global-policy-poisoning",
+    "cross-user-direct-memory-leak",
+    "compaction-policy-poisoning",
+    "delayed-recommendation-manipulation",
 )
 
 
@@ -101,8 +109,14 @@ def compare_state(before: dict[str, Any], after: dict[str, Any]) -> dict[str, An
     }
 
 
-def _load_storage_options(config_path: Path) -> tuple[str, str]:
+def _load_config(config_path: Path) -> dict[str, Any]:
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("config must contain a YAML mapping")
+    return raw
+
+
+def _load_storage_options(raw: dict[str, Any]) -> tuple[str, str]:
     isolation_options = ((raw or {}).get("isolation") or {}).get("options") or {}
     return (
         str(isolation_options.get("mongo_uri", "mongodb://localhost:27017")),
@@ -128,51 +142,21 @@ def _safe_result(result_path: Path | None) -> dict[str, Any] | None:
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate local campaign isolation without printing scenario content."
-    )
-    parser.add_argument(
-        "config",
-        type=Path,
-        nargs="?",
-        default=Path("examples/connectors/investment_stand/diskard.yaml"),
-    )
-    parser.add_argument(
-        "--attack",
-        default="cross-user-global-policy-poisoning",
-    )
-    parser.add_argument("--repeats", type=int, default=2)
-    parser.add_argument("--mongo-db", default="agent_memory")
-    parser.add_argument("--mongo-uri", default=None)
-    parser.add_argument("--redis-url", default=None)
-    return parser
-
-
-def main() -> int:
-    args = build_parser().parse_args()
-    if args.repeats < 1:
-        raise SystemExit("--repeats must be at least 1")
-
-    repo_root = Path(__file__).resolve().parent.parent
-    config_path = args.config.resolve()
-    config_mongo_uri, config_redis_url = _load_storage_options(config_path)
-    mongo_uri = args.mongo_uri or config_mongo_uri
-    redis_url = args.redis_url or config_redis_url
-
-    started_at = datetime.now(UTC)
-    validation_dir = repo_root / "runs" / f"controlled-validation-{started_at:%Y%m%dT%H%M%SZ}"
-    validation_dir.mkdir(parents=True, exist_ok=False)
-    raw_log_path = validation_dir / "scan.log"
-    summary_path = validation_dir / "summary.json"
-    runs_dir = repo_root / "runs"
-
-    before = capture_state(
-        mongo_uri=mongo_uri,
-        mongo_db=args.mongo_db,
-        redis_url=redis_url,
-    )
+def run_campaign(
+    *,
+    attack: str,
+    repeats: int,
+    config_path: Path,
+    repo_root: Path,
+    validation_dir: Path,
+    runs_dir: Path,
+    mongo_uri: str,
+    mongo_db: str,
+    redis_url: str,
+) -> dict[str, Any]:
+    before = capture_state(mongo_uri=mongo_uri, mongo_db=mongo_db, redis_url=redis_url)
     existing_results = _result_directories(runs_dir)
+    raw_log_path = validation_dir / f"scan-{attack}.log"
     command = [
         sys.executable,
         "-m",
@@ -180,11 +164,11 @@ def main() -> int:
         "scan",
         str(config_path),
         "--attack",
-        args.attack,
+        attack,
         "--driver",
         "deterministic",
         "--repeats",
-        str(args.repeats),
+        str(repeats),
     ]
     with raw_log_path.open("w", encoding="utf-8") as raw_log:
         process = subprocess.run(
@@ -196,11 +180,7 @@ def main() -> int:
             text=True,
         )
 
-    after = capture_state(
-        mongo_uri=mongo_uri,
-        mongo_db=args.mongo_db,
-        redis_url=redis_url,
-    )
+    after = capture_state(mongo_uri=mongo_uri, mongo_db=mongo_db, redis_url=redis_url)
     new_results = sorted(
         _result_directories(runs_dir) - existing_results,
         key=lambda path: path.stat().st_mtime,
@@ -217,18 +197,173 @@ def main() -> int:
         and infrastructure_errors == 0
         and state_comparison["overall_equal"]
     )
-    summary = {
-        "version": 1,
-        "started_at": started_at.isoformat(),
-        "completed_at": datetime.now(UTC).isoformat(),
-        "attack": args.attack,
-        "driver": "deterministic",
-        "requested_repeats": args.repeats,
+    return {
+        "attack": attack,
         "scan_exit_code": process.returncode,
         "result": safe_result,
         "state": state_comparison,
         "validation_passed": validation_passed,
         "raw_log": str(raw_log_path),
+    }
+
+
+async def validate_failure_path(
+    *,
+    raw_config: dict[str, Any],
+    config_path: Path,
+    mongo_uri: str,
+    mongo_db: str,
+    redis_url: str,
+) -> dict[str, Any]:
+    """Verify live restore after a deliberate local exception without target calls."""
+    from diskard.connectors import load_connector_factory
+
+    class ControlledValidationError(RuntimeError):
+        pass
+
+    isolation_config = raw_config.get("isolation") or {}
+    factory = load_connector_factory(
+        str(isolation_config["factory"]),
+        base_dir=config_path.parent,
+    )
+    isolation = factory(isolation_config.get("options") or {})
+    before = capture_state(mongo_uri=mongo_uri, mongo_db=mongo_db, redis_url=redis_url)
+    checkpoint = await isolation.prepare(f"controlled-failure-{uuid4().hex}")
+    exception_observed = False
+    operation_error = False
+    mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5_000)
+    redis_client = Redis.from_url(redis_url, decode_responses=False)
+    sentinel_id = f"controlled-validation-{uuid4().hex}"
+    restore_completed = False
+    controller_verified = False
+    try:
+        try:
+            mongo_client[mongo_db]["dialog_sessions"].insert_one(
+                {"_id": sentinel_id, "validation_sentinel": True}
+            )
+            redis_client.set(f"working:validation:{sentinel_id}", b"sentinel")
+            raise ControlledValidationError
+        except ControlledValidationError:
+            exception_observed = True
+        except Exception:  # noqa: BLE001 -- summary intentionally exposes no exception content
+            operation_error = True
+    finally:
+        mongo_client.close()
+        redis_client.close()
+        try:
+            await isolation.restore(checkpoint)
+            restore_completed = True
+            controller_verified = await isolation.verify(checkpoint)
+        except Exception:  # noqa: BLE001 -- summary intentionally exposes no exception content
+            pass
+
+    after = capture_state(mongo_uri=mongo_uri, mongo_db=mongo_db, redis_url=redis_url)
+    state_comparison = compare_state(before, after)
+    validation_passed = (
+        exception_observed
+        and not operation_error
+        and restore_completed
+        and controller_verified
+        and state_comparison["overall_equal"]
+    )
+    return {
+        "exception_observed": exception_observed,
+        "operation_error": operation_error,
+        "restore_completed": restore_completed,
+        "controller_verified": controller_verified,
+        "state": state_comparison,
+        "validation_passed": validation_passed,
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Validate local campaign isolation without printing scenario content."
+    )
+    parser.add_argument(
+        "config",
+        type=Path,
+        nargs="?",
+        default=Path("examples/connectors/investment_stand/diskard.yaml"),
+    )
+    parser.add_argument(
+        "--attack",
+        default="cross-user-global-policy-poisoning",
+    )
+    parser.add_argument(
+        "--all-attacks",
+        action="store_true",
+        help="Run every built-in family sequentially.",
+    )
+    parser.add_argument(
+        "--include-failure-path",
+        action="store_true",
+        help="Also validate restore after a controlled local exception.",
+    )
+    parser.add_argument("--repeats", type=int, default=2)
+    parser.add_argument("--mongo-db", default="agent_memory")
+    parser.add_argument("--mongo-uri", default=None)
+    parser.add_argument("--redis-url", default=None)
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    if args.repeats < 1:
+        raise SystemExit("--repeats must be at least 1")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    config_path = args.config.resolve()
+    raw_config = _load_config(config_path)
+    config_mongo_uri, config_redis_url = _load_storage_options(raw_config)
+    mongo_uri = args.mongo_uri or config_mongo_uri
+    redis_url = args.redis_url or config_redis_url
+
+    started_at = datetime.now(UTC)
+    validation_dir = repo_root / "runs" / f"controlled-validation-{started_at:%Y%m%dT%H%M%SZ}"
+    validation_dir.mkdir(parents=True, exist_ok=False)
+    summary_path = validation_dir / "summary.json"
+    runs_dir = repo_root / "runs"
+    attacks = ALL_ATTACKS if args.all_attacks else (args.attack,)
+    campaigns = [
+        run_campaign(
+            attack=attack,
+            repeats=args.repeats,
+            config_path=config_path,
+            repo_root=repo_root,
+            validation_dir=validation_dir,
+            runs_dir=runs_dir,
+            mongo_uri=mongo_uri,
+            mongo_db=args.mongo_db,
+            redis_url=redis_url,
+        )
+        for attack in attacks
+    ]
+    failure_path = (
+        asyncio.run(
+            validate_failure_path(
+                raw_config=raw_config,
+                config_path=config_path,
+                mongo_uri=mongo_uri,
+                mongo_db=args.mongo_db,
+                redis_url=redis_url,
+            )
+        )
+        if args.include_failure_path
+        else None
+    )
+    validation_passed = all(item["validation_passed"] for item in campaigns) and (
+        failure_path is None or failure_path["validation_passed"]
+    )
+    summary = {
+        "version": 2,
+        "started_at": started_at.isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
+        "driver": "deterministic",
+        "requested_repeats": args.repeats,
+        "campaigns": campaigns,
+        "failure_path": failure_path,
+        "validation_passed": validation_passed,
     }
     summary_path.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
