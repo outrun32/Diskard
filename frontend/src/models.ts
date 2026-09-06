@@ -32,6 +32,7 @@ export function mapRun(value: unknown): RunSummary {
     durationMs: typeof r.duration_ms === "number" ? r.duration_ms : Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined,
     lastEventSequence: typeof r.last_event_sequence === "number" ? r.last_event_sequence : undefined,
     eventCount: typeof r.event_count === "number" ? r.event_count : undefined,
+    checkId: textValue(record(config.options).check_id),
     parentRunId: textValue(r.parent_run_id), imported: r.origin === "imported" || r.origin === "cli-import" || r.mode === "legacy-import",
     demo: r.demo === true || summary.synthetic === true,
   };

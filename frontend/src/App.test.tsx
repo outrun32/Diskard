@@ -13,7 +13,8 @@ beforeEach(()=>{
  fetchMock=vi.fn(async(path:string,init?:RequestInit)=>{
  const u=new URL(path,"http://local");let data:unknown;
  if(u.pathname.endsWith("/events"))data={items:[{...event(1),data:{message:hostile}},memoryEvent,event(3)],last_event_sequence:3};
- else if(u.pathname==="/api/v1/checks")data={id:"created-check"};
+ else if(u.pathname==="/api/v1/checks"&&init?.method==="POST")data={id:"created-check"};
+ else if(u.pathname==="/api/v1/checks")data={items:[],total:0,offset:0,limit:20};
  else if(u.pathname==="/api/v1/checks/created-check")data={id:"created-check",profile_id:"investment-local",profile_version:3,attacks:["policy-test"],runs:[]};
  else if(u.pathname==="/api/v1/runs"&&init?.method==="POST")data={...run,id:"created-run"};
  else if(u.pathname==="/api/v1/runs")data={items:[run],total:1,offset:0,limit:50};
@@ -27,20 +28,21 @@ afterEach(()=>{clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals();});
 describe("operator journey using actual API shapes",()=>{
  it("shows real history and filters loaded records",async()=>{
  mount("/runs");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.queryByText(/Демонстрационный режим/)).not.toBeInTheDocument();
- await userEvent.type(screen.getByLabelText("Поиск по запускам"),"missing");expect(await screen.findByText("Совпадений нет")).toBeInTheDocument();
+ expect(screen.getByRole("button",{name:"New run"})).toBeInTheDocument();
+ await userEvent.type(screen.getByLabelText("Search runs"),"missing");expect(await screen.findByText("No matches")).toBeInTheDocument();
  });
  it("renders long untrusted messages as text, filters events, and selects memory",async()=>{
  mount("/runs/real-run/trace");const row=await screen.findByRole("button",{name:/memory.finalize/});await userEvent.click(row);expect(screen.getByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();
- await userEvent.type(screen.getByLabelText("Поиск событий"),"operation-1");expect(screen.queryByRole("button",{name:/memory.finalize/})).not.toBeInTheDocument();
+ await userEvent.type(screen.getByLabelText("Search events"),"operation-1");expect(screen.queryByRole("button",{name:/memory.finalize/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:/operation-1/}));expect(document.querySelector("script")).toBeNull();expect(document.querySelector(".message-detail pre")?.textContent).toBe(hostile);
  });
  it("restores playback cursor, hides future events, and never posts",async()=>{
  mount("/runs/real-run/trace?mode=playback&event=2");expect(await screen.findByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();expect(screen.queryByRole("button",{name:/operation-3/})).not.toBeInTheDocument();
- await userEvent.click(screen.getByRole("button",{name:"Следующее событие"}));expect(await screen.findByRole("button",{name:/operation-3/})).toBeInTheDocument();
+ await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(await screen.findByRole("button",{name:/operation-3/})).toBeInTheDocument();
  expect(fetchMock.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
  });
  it("launches with catalog values and backend-supported field names",async()=>{
- mount("/runs/new");await screen.findByRole("option",{name:"Test target"});await userEvent.selectOptions(screen.getByRole("combobox",{name:"Цель"}),"investment-local");await waitFor(()=>expect(screen.getByRole("button",{name:"Атаковать всеми способами"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Атаковать всеми способами"}));
+ mount("/runs/new?target=investment-local");await screen.findByRole("option",{name:/Test target/});expect(await screen.findByRole("combobox",{name:"Attack method"})).toHaveValue("full");await waitFor(()=>expect(screen.getByRole("button",{name:"Run attack"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Run attack"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")).toBe(true));
  const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
  expect(JSON.parse(String(call[1]?.body))).toMatchObject({profile_id:"investment-local",attacks:["policy-test"],driver:"template"});

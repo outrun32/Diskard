@@ -93,6 +93,7 @@ export interface RunSummary {
   eventCount?: number;
   lastEventSequence?: number;
   parentRunId?: string;
+  checkId?: string;
   imported?: boolean;
   demo?: boolean;
 }

@@ -92,6 +92,9 @@ async def test_http_operator_journey(tmp_path, monkeypatch):
             assert (await client.post(f"/api/v1/checks/{check_id}/cancel")).status_code == 200
             assert (await client.get(f"/api/v1/checks/{check_id}/report")).status_code == 200
             assert (await client.get("/api/v1/overview")).json()["checks"][0]["id"] == check_id
+            check_history = (await client.get("/api/v1/checks?limit=10&offset=0")).json()
+            assert check_history["total"] == 1
+            assert check_history["items"][0]["id"] == check_id
             from diskard.console.contracts import ReadinessReport
 
             async def unavailable(profile, attacks=None):

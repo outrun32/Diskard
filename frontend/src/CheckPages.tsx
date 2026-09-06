@@ -1,49 +1,53 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { listProfiles, getCatalog, request, mapRun, DEMO_MODE, ApiError } from "./api";
+import { listProfiles, getCatalog, request, mapRun, createRun, DEMO_MODE, ApiError } from "./api";
 import { activeStatus, record } from "./models";
 import type { ReadinessCheck } from "./types";
 import { Failure, Checks } from "./SetupPages";
+import { useLanguage } from "./i18n";
 
 export function LaunchCheckPage() {
+  const {t}=useLanguage();
   const [params]=useSearchParams(),navigate=useNavigate(),cache=useQueryClient();
-  const [target,setTarget]=useState(params.get("target")??""),[subset,setSubset]=useState<string[]|null>(null);
+  const [target,setTarget]=useState(params.get("target")??""),[method,setMethod]=useState("full");
   const [submission]=useState(()=>crypto.randomUUID());
   const profiles=useQuery({queryKey:["profiles"],queryFn:({signal})=>listProfiles(signal)});
   const selected=target;
   const catalog=useQuery({queryKey:["catalog",selected],queryFn:({signal})=>getCatalog(selected,signal),enabled:!!selected});
   const available=catalog.data?.attacks.filter(a=>a.available)??[];
   const driver=catalog.data?.drivers.find(d=>d.available)?.id;
-  const chosen=subset??available.map(a=>a.id);
-  const mutation=useMutation({mutationFn:()=>request("/api/v1/checks",{method:"POST",body:JSON.stringify({profile_id:selected,attacks:chosen,driver,submission_id:submission})}) as Promise<{id:string}>,
-    onSuccess:result=>{void cache.invalidateQueries({queryKey:["runs"]});void cache.invalidateQueries({queryKey:["overview"]});navigate("/checks/"+result.id);}});
-  return <div><div className="page-header"><div><h1>Проверить цель</h1><p>Запустите все доступные сценарии и разберите результаты в одной проверке.</p></div></div>
-    {profiles.isError?<Failure error={profiles.error}/>:profiles.isPending?<p>Загружаем цели…</p>:!profiles.data.length?<section className="overview-start"><h2>Сначала подключите приложение</h2><Link className="button button-primary" to="/targets/new">Подключить цель</Link></section>:<form className="new-run-layout" onSubmit={e=>{e.preventDefault();if(!mutation.isPending&&!DEMO_MODE)mutation.mutate();}}>
-      <section className="form-panel"><h2>Какое приложение проверяем?</h2><label className="form-field"><span>Цель</span><select value={selected} disabled={mutation.isPending} onChange={e=>{setTarget(e.target.value);setSubset(null);}}><option value="">Выберите цель</option>{profiles.data.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        {!selected?<p>Выберите приложение, чтобы увидеть доступные способы проверки.</p>:catalog.isError?<Failure error={catalog.error}/>:catalog.isPending?<p>Получаем доступные сценарии…</p>:<>
-          <p>Доступно сценариев: {available.length}. Каждый выполнится последовательно с отдельной трассировкой.</p>
-          <details className="advanced-panel"><summary>Расширенные параметры — выбрать атаки</summary><p>По умолчанию выбраны все доступные способы.</p>{catalog.data.attacks.map(a=><label className="check-attack-option" key={a.id}><input type="checkbox" checked={chosen.includes(a.id)} disabled={!a.available||mutation.isPending} onChange={e=>setSubset(e.target.checked?[...chosen,a.id]:chosen.filter(id=>id!==a.id))}/><span>{a.label??a.id}{!a.available&&<small>{a.reason??"Недоступно для этой цели"}</small>}</span></label>)}<button type="button" className="button button-ghost" onClick={()=>setSubset(null)}>Выбрать все доступные</button></details>
-        </>}
-      </section><aside className="run-readiness-panel"><h2>{subset===null?"Полная проверка":"Выбранные сценарии"}</h2><p>{chosen.length} сценариев · по одному запуску каждого.</p><p>Проверка использует существующие атаки. Состояние памяти цели между сценариями не восстанавливается автоматически.</p><button className="button button-primary" disabled={DEMO_MODE||!selected||mutation.isPending||catalog.isFetching||!driver||chosen.length===0}>{mutation.isPending?"Проверяем подключение…":subset===null?"Атаковать всеми способами":"Запустить выбранные атаки"}</button>{DEMO_MODE&&<p>Полная проверка требует подключения реального backend. Demo не отправляет атаки.</p>}{mutation.isError&&<><Failure error={mutation.error}/>{mutation.error instanceof ApiError&&Array.isArray(record(mutation.error.details).checks)&&<Checks checks={record(mutation.error.details).checks as ReadinessCheck[]}/>}<Link className="text-link" to={`/targets/${encodeURIComponent(selected)}/edit`}>Исправить профиль цели</Link></>}</aside>
+  const chosen=method==="full"?available.map(a=>a.id):[method];
+  const mutation=useMutation({mutationFn:async()=>{
+    if(method==="full")return {kind:"check",result:await request("/api/v1/checks",{method:"POST",body:JSON.stringify({profile_id:selected,attacks:chosen,driver,submission_id:submission})}) as {id:string}};
+    return {kind:"run",result:await createRun({profile_id:selected,attack:method,driver:driver!,budget:1,repeat:1,submission_id:submission})};
+  },onSuccess:({kind,result})=>{void cache.invalidateQueries({queryKey:["checks"]});void cache.invalidateQueries({queryKey:["runs"]});void cache.invalidateQueries({queryKey:["overview"]});navigate(kind==="check"?"/checks/"+result.id:"/runs/"+result.id+"/trace");}});
+  return <div><div className="page-header"><div><h1>{t("launchTitle")}</h1><p>{t("launchDescription")}</p></div></div>
+    {profiles.isError?<Failure error={profiles.error}/>:profiles.isPending?<p>{t("loadingTargets")}</p>:!profiles.data.length?<section className="overview-start"><h2>{t("connectFirst")}</h2><Link className="button button-primary" to="/targets/new">{t("addTargetUrl")}</Link></section>:<form className="launch-form" onSubmit={e=>{e.preventDefault();if(!mutation.isPending&&!DEMO_MODE)mutation.mutate();}}>
+      <section className="form-panel"><div className="form-field"><label htmlFor="launch-target">{t("target")}</label><div className="field-with-action"><select id="launch-target" value={selected} disabled={mutation.isPending} onChange={e=>{setTarget(e.target.value);setMethod("full");}}><option value="">{t("chooseTarget")}</option>{profiles.data.map(p=><option key={p.id} value={p.id}>{p.name} — {p.config.base_url}</option>)}</select><Link className="button button-secondary" to="/targets/new">{t("addTarget")}</Link></div></div>
+        {selected&&(catalog.isError?<Failure error={catalog.error}/>:catalog.isPending?<p>{t("checking")}</p>:<div className="form-field"><label htmlFor="attack-method">{t("attackMethod")}</label><select id="attack-method" value={method} disabled={mutation.isPending} onChange={e=>setMethod(e.target.value)}><option value="full">{t("fullAttack")} — {available.length} {t("scenarios")}</option>{catalog.data.attacks.map(a=><option key={a.id} value={a.id} disabled={!a.available}>{a.label??a.id}{!a.available?` — ${a.reason??t("unavailable")}`:""}</option>)}</select><small>{method==="full"?t("fullAttackHint"):t("methodHint")}</small></div>)}
+        <button className="button button-primary launch-submit" disabled={DEMO_MODE||!selected||mutation.isPending||catalog.isFetching||!driver||chosen.length===0}>{mutation.isPending?t("checking"):t("runAttack")}</button>
+        {mutation.isError&&<div className="launch-error"><Failure error={mutation.error}/>{mutation.error instanceof ApiError&&Array.isArray(record(mutation.error.details).checks)&&<Checks checks={record(mutation.error.details).checks as ReadinessCheck[]}/>}<Link className="text-link" to={`/targets/${encodeURIComponent(selected)}/edit`}>{t("fixTarget")}</Link></div>}
+      </section>
     </form>}
   </div>;
 }
 
 type Check = {id:string;profile_id:string;profile_version:number;attacks:string[];runs:unknown[]};
 export function CheckDetailPage() {
+  const {language,t}=useLanguage();
   const {id}=useParams();
   const q=useQuery({queryKey:["check",id],queryFn:({signal})=>request(`/api/v1/checks/${id}`,{signal}) as Promise<Check>,refetchInterval:query=>query.state.data?.runs.some(run=>activeStatus(mapRun(run).status))?1500:false});
   const cancel=useMutation({mutationFn:()=>request(`/api/v1/checks/${id}/cancel`,{method:"POST"}),onSuccess:()=>q.refetch()});
-  if(q.isPending)return <p>Загружаем проверку…</p>;
+  if(q.isPending)return <p>{t("checksLoading")}</p>;
   if(q.isError)return <Failure error={q.error} retry={()=>q.refetch()}/>;
   const runs=q.data.runs.map(mapRun),active=runs.filter(r=>activeStatus(r.status)).length,done=runs.length-active;
-  return <div><div className="page-header"><div><h1>Проверка цели</h1><p>{q.data.profile_id} · профиль v{q.data.profile_version} · {done} из {runs.length} завершено</p></div><div className="target-card-actions"><a className="button button-secondary" href={`/api/v1/checks/${id}/report`}>Скачать общий отчёт</a>{active>0&&<button className="button button-danger" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>Остановить проверку</button>}</div></div>
-    <progress className="check-progress" aria-label="Завершённые сценарии" value={done} max={runs.length||1}/>
-    <p>{active?"Сценарии выполняются последовательно. Можно закрыть страницу и вернуться позже.":"Проверка завершена. Изучите результат каждого сценария, включая ошибки выполнения."}</p>
+  return <div><div className="page-header"><div><h1>{t("fullAttack")}</h1><p>{q.data.profile_id} · {t("profile")} v{q.data.profile_version} · {done} / {runs.length} {t("completed")}</p></div><div className="target-card-actions"><a className="button button-primary" href={`/api/v1/checks/${id}/report`}>{t("combinedReport")}</a>{active>0&&<button className="button button-danger" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t("stop")}</button>}</div></div>
+    <progress className="check-progress" aria-label="Completed attacks" value={done} max={runs.length||1}/>
+    <p>{active?"Attacks run sequentially. You can close this page and return later.":"Full attack finished. Review each trace, including execution failures."}</p>
     {cancel.isError&&<Failure error={cancel.error}/>}
-    <div className="overview-results">{runs.map(run=><Link className="overview-run" key={run.id} to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{activeStatus(run.status)?"В работе":run.status==="completed"?"Завершён":run.status==="cancelled"?"Отменён":"Ошибка / прерван"}</span><small>{run.outcome==="vulnerable"?"Цель атаки достигнута":run.outcome==="clean"?"Цель атаки не достигнута":"Результат не определён"}</small></div><span>→</span></Link>)}</div>
-    <p className="muted-copy">Покрытие: {q.data.attacks.length} выбранных сценариев. Это не гарантия обнаружения всех проблем; память цели между сценариями может сохраняться.</p>
-    <Link className="text-link" to="/">К обзору</Link>
+    <div className="overview-results">{runs.map(run=><Link className="overview-run" key={run.id} to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{activeStatus(run.status)?"Running":run.status==="completed"?"Completed":run.status==="cancelled"?"Cancelled":"Failed / interrupted"}</span><small>{run.outcome==="vulnerable"?"Attack objective reached":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><span>→</span></Link>)}</div>
+    <p className="muted-copy">Coverage: {q.data.attacks.length} selected attacks. This does not guarantee detection of every issue; target memory may persist between attacks.</p>
+    <Link className="text-link" to="/runs">{language==="en"?"Back to runs":"К запускам"}</Link>
   </div>;
 }

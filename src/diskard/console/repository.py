@@ -490,6 +490,13 @@ class RunStore:
             connection.execute(insert(checks).values(**row))
         return row
 
+    def list_checks(self, *, limit: int = 30, offset: int = 0) -> dict[str, Any]:
+        with self.engine.connect() as connection:
+            items = [_row(row) for row in connection.execute(
+                select(checks).order_by(desc(checks.c.created_at), checks.c.id).limit(limit).offset(offset))]
+            total = connection.execute(select(func.count()).select_from(checks)).scalar_one()
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
     def check_submission(self, submission_id: str) -> dict[str, Any] | None:
         with self.engine.connect() as connection:
             return _row(

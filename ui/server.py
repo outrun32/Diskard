@@ -957,6 +957,11 @@ def get_check(check_id: str):
     return result
 
 
+@app.get("/api/v1/checks")
+def list_checks(limit: int = Query(default=30, ge=1, le=100), offset: int = Query(default=0, ge=0)):
+    return _console_runtime().require_store().list_checks(limit=limit, offset=offset)
+
+
 @app.post("/api/v1/checks/{check_id}/cancel")
 def cancel_check(request: Request, check_id: str):
     _guard_state_change(request)
@@ -1269,6 +1274,7 @@ app.mount(
 @app.api_route("/compare", methods=["GET", "HEAD"])
 @app.api_route("/settings", methods=["GET", "HEAD"])
 @app.api_route("/checks/{check_id}", methods=["GET", "HEAD"])
+@app.api_route("/checks", methods=["GET", "HEAD"])
 def console_page(view: str | None = None):
     if view is not None and view not in {"trace", "results", "config"}:
         raise HTTPException(404, "unknown console view")
