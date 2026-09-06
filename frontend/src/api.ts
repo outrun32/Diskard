@@ -2,11 +2,11 @@ import type { RunDetail, RunFilters, EventPage, RunPage, RunInput, Profile, Prof
 import { mapRun, mapDetail, mapEvent, record, jsonText } from "./models";
 export { mapRun, mapDetail, mapEvent } from "./models";
 export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
-export class ApiError extends Error { constructor(message:string,public status?:number){super(message);this.name="ApiError";} }
+export class ApiError extends Error { constructor(message:string,public status?:number,public details?:unknown){super(message);this.name="ApiError";} }
 export async function request(path:string,init:RequestInit={}):Promise<unknown>{
  const response=await fetch(path,{...init,headers:{Accept:"application/json",...(init.body?{"Content-Type":"application/json"}:{}),...init.headers}});
- if(!response.ok){let detail="";try{const b=record(await response.json());detail=jsonText(b.detail??b.message??b.error)??"";}catch{}
- throw new ApiError(`HTTP ${response.status}${detail?": "+detail:""}`,response.status);}
+ if(!response.ok){let detail="",details:unknown;try{const b=record(await response.json());details=b.detail;detail=jsonText(record(b.detail).message??b.detail??b.message??b.error)??"";}catch{}
+ throw new ApiError(`HTTP ${response.status}${detail?": "+detail:""}`,response.status,details);}
  if(response.status===204)return undefined;
  try{return await response.json();}catch{throw new ApiError("Сервер вернул не JSON. Проверьте адрес API и SPA fallback.",response.status);}
 }

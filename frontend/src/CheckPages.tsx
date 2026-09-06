@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { listProfiles, getCatalog, request, mapRun, DEMO_MODE } from "./api";
-import { activeStatus } from "./models";
-import { Failure } from "./SetupPages";
+import { listProfiles, getCatalog, request, mapRun, DEMO_MODE, ApiError } from "./api";
+import { activeStatus, record } from "./models";
+import type { ReadinessCheck } from "./types";
+import { Failure, Checks } from "./SetupPages";
 
 export function LaunchCheckPage() {
   const [params]=useSearchParams(),navigate=useNavigate(),cache=useQueryClient();
@@ -24,7 +25,7 @@ export function LaunchCheckPage() {
           <p>Доступно сценариев: {available.length}. Каждый выполнится последовательно с отдельной трассировкой.</p>
           <details className="advanced-panel"><summary>Расширенные параметры — выбрать атаки</summary><p>По умолчанию выбраны все доступные способы.</p>{catalog.data.attacks.map(a=><label className="check-attack-option" key={a.id}><input type="checkbox" checked={chosen.includes(a.id)} disabled={!a.available||mutation.isPending} onChange={e=>setSubset(e.target.checked?[...chosen,a.id]:chosen.filter(id=>id!==a.id))}/><span>{a.label??a.id}{!a.available&&<small>{a.reason??"Недоступно для этой цели"}</small>}</span></label>)}<button type="button" className="button button-ghost" onClick={()=>setSubset(null)}>Выбрать все доступные</button></details>
         </>}
-      </section><aside className="run-readiness-panel"><h2>{subset===null?"Полная проверка":"Выбранные сценарии"}</h2><p>{chosen.length} сценариев · по одному запуску каждого.</p><p>Проверка использует существующие атаки. Состояние памяти цели между сценариями не восстанавливается автоматически.</p><button className="button button-primary" disabled={DEMO_MODE||!selected||mutation.isPending||catalog.isFetching||!driver||chosen.length===0}>{mutation.isPending?"Создаём проверку…":subset===null?"Атаковать всеми способами":"Запустить выбранные атаки"}</button>{DEMO_MODE&&<p>Полная проверка требует подключения реального backend. Demo не отправляет атаки.</p>}{mutation.isError&&<Failure error={mutation.error}/>}</aside>
+      </section><aside className="run-readiness-panel"><h2>{subset===null?"Полная проверка":"Выбранные сценарии"}</h2><p>{chosen.length} сценариев · по одному запуску каждого.</p><p>Проверка использует существующие атаки. Состояние памяти цели между сценариями не восстанавливается автоматически.</p><button className="button button-primary" disabled={DEMO_MODE||!selected||mutation.isPending||catalog.isFetching||!driver||chosen.length===0}>{mutation.isPending?"Проверяем подключение…":subset===null?"Атаковать всеми способами":"Запустить выбранные атаки"}</button>{DEMO_MODE&&<p>Полная проверка требует подключения реального backend. Demo не отправляет атаки.</p>}{mutation.isError&&<><Failure error={mutation.error}/>{mutation.error instanceof ApiError&&Array.isArray(record(mutation.error.details).checks)&&<Checks checks={record(mutation.error.details).checks as ReadinessCheck[]}/>}<Link className="text-link" to={`/targets/${encodeURIComponent(selected)}/edit`}>Исправить профиль цели</Link></>}</aside>
     </form>}
   </div>;
 }
@@ -32,7 +33,7 @@ export function LaunchCheckPage() {
 type Check = {id:string;profile_id:string;profile_version:number;attacks:string[];runs:unknown[]};
 export function CheckDetailPage() {
   const {id}=useParams();
-  const q=useQuery({queryKey:["check",id],queryFn:({signal})=>request(`/api/v1/checks/${id}`,{signal}) as Promise<Check>,refetchInterval:1500});
+  const q=useQuery({queryKey:["check",id],queryFn:({signal})=>request(`/api/v1/checks/${id}`,{signal}) as Promise<Check>,refetchInterval:query=>query.state.data?.runs.some(run=>activeStatus(mapRun(run).status))?1500:false});
   const cancel=useMutation({mutationFn:()=>request(`/api/v1/checks/${id}/cancel`,{method:"POST"}),onSuccess:()=>q.refetch()});
   if(q.isPending)return <p>Загружаем проверку…</p>;
   if(q.isError)return <Failure error={q.error} retry={()=>q.refetch()}/>;

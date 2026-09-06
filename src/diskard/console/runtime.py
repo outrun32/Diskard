@@ -29,6 +29,12 @@ from diskard.console.settings import ConsoleSettings
 log = logging.getLogger("diskard.console")
 
 
+class CheckNotReady(ValueError):
+    def __init__(self, checks):
+        super().__init__("Цель не готова к проверке. Исправьте подключение или профиль.")
+        self.checks = checks
+
+
 class CancellationFlag:
     def __init__(self) -> None:
         self._event = threading.Event()
@@ -356,7 +362,7 @@ class ConsoleRuntime:
             source_sha=self.settings.build_sha,
         )
 
-    def create_check(
+    async def create_check(
         self, profile_id: str, attacks: list[str] | None, driver: str, submission_id: str
     ) -> dict[str, Any]:
         store = self.require_store()
@@ -370,6 +376,13 @@ class ConsoleRuntime:
             raise ValueError("Select at least one available attack")
         if not any(item["id"] == driver and item.get("available") for item in capabilities.drivers):
             raise ValueError("Selected driver is unavailable")
+        existing = store.check_submission(submission_id)
+        if existing is None:
+            readiness = await self.bridge.validate(
+                TargetProfile.model_validate(profile["config"]), selected
+            )
+            if not readiness.ready:
+                raise CheckNotReady(readiness.checks)
         return store.create_check(
             profile=profile,
             attacks=selected,

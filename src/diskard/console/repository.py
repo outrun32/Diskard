@@ -490,6 +490,14 @@ class RunStore:
             connection.execute(insert(checks).values(**row))
         return row
 
+    def check_submission(self, submission_id: str) -> dict[str, Any] | None:
+        with self.engine.connect() as connection:
+            return _row(
+                connection.execute(
+                    select(checks).where(checks.c.submission_id == submission_id)
+                ).first()
+            )
+
     def check(self, check_id: str) -> dict[str, Any] | None:
         with self.engine.connect() as connection:
             row = _row(connection.execute(select(checks).where(checks.c.id == check_id)).first())

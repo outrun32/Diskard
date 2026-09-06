@@ -92,6 +92,42 @@ async def test_http_operator_journey(tmp_path, monkeypatch):
             assert (await client.post(f"/api/v1/checks/{check_id}/cancel")).status_code == 200
             assert (await client.get(f"/api/v1/checks/{check_id}/report")).status_code == 200
             assert (await client.get("/api/v1/overview")).json()["checks"][0]["id"] == check_id
+            from diskard.console.contracts import ReadinessReport
+
+            async def unavailable(profile, attacks=None):
+                return ReadinessReport(
+                    checks=[
+                        {
+                            "id": "target",
+                            "label": "Target",
+                            "status": "blocked",
+                            "reason": "Unavailable",
+                        }
+                    ]
+                )
+
+            monkeypatch.setattr(runtime.bridge, "validate", unavailable)
+            before = runtime.store.list_runs()[1]
+            blocked = await client.post(
+                "/api/v1/checks",
+                json={
+                    "profile_id": "fixture",
+                    "driver": "fixture",
+                    "submission_id": "blocked-check",
+                },
+            )
+            assert blocked.status_code == 409
+            assert blocked.json()["detail"]["checks"][0]["status"] == "blocked"
+            assert runtime.store.list_runs()[1] == before
+            retry = await client.post(
+                "/api/v1/checks",
+                json={
+                    "profile_id": "fixture",
+                    "driver": "fixture",
+                    "submission_id": "all-scenarios",
+                },
+            )
+            assert retry.status_code == 200 and retry.json()["id"] == check_id
         finally:
             await runtime.stop()
 

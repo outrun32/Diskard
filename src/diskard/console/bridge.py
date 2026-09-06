@@ -35,7 +35,9 @@ EventSink = Callable[[EventRecord], Awaitable[None] | None]
 class ExecutionBridge(Protocol):
     def capabilities(self, profile: TargetProfile) -> CapabilityReport: ...
 
-    async def validate(self, profile: TargetProfile) -> ReadinessReport: ...
+    async def validate(
+        self, profile: TargetProfile, attacks: list[str] | None = None
+    ) -> ReadinessReport: ...
 
     async def execute(
         self, run_spec: RunSpec, event_sink: EventSink, cancellation: CancellationToken
@@ -151,7 +153,9 @@ class InvestmentExecutionBridge:
             ],
         )
 
-    async def validate(self, profile: TargetProfile) -> ReadinessReport:
+    async def validate(
+        self, profile: TargetProfile, attacks: list[str] | None = None
+    ) -> ReadinessReport:
         checks: list[dict[str, Any]] = []
         if profile.adapter != "investment-stand":
             return ReadinessReport(
@@ -174,10 +178,10 @@ class InvestmentExecutionBridge:
                 {
                     "id": "target_api",
                     "label": "target API",
-                    "status": "ready" if 200 <= response.status_code < 400 else "blocked",
+                    "status": "ready" if 200 <= response.status_code < 300 else "blocked",
                     "detail": f"HTTP {response.status_code}",
                     "reason": None
-                    if 200 <= response.status_code < 400
+                    if 200 <= response.status_code < 300
                     else "expected a reachable HTTP endpoint",
                 }
             )
@@ -186,8 +190,11 @@ class InvestmentExecutionBridge:
                 {"id": "target_api", "label": "target API", "status": "blocked", "reason": str(exc)}
             )
 
-        required_roles = {"attacker", "trigger_user", "data_subject"}
-        if "delayed-recommendation-manipulation" in KNOWN_ATTACKS:
+        selected = set(KNOWN_ATTACKS if attacks is None else attacks)
+        required_roles = {"attacker", "trigger_user"}
+        if selected & {"cross-user-global-policy-poisoning", "compaction-policy-poisoning"}:
+            required_roles.add("data_subject")
+        if "delayed-recommendation-manipulation" in selected:
             required_roles.add("control")
         for role in sorted(required_roles):
             actor = profile.actors.get(role)
@@ -239,7 +246,11 @@ class InvestmentExecutionBridge:
             {
                 "id": "evidence:invest",
                 "label": "portfolio canary collector",
-                "status": "ready" if invest_url else "blocked",
+                "status": "ready"
+                if invest_url
+                else "blocked"
+                if "data_subject" in required_roles
+                else "optional",
                 "detail": invest_url or "missing adapter_options.invest_url",
                 "reason": None if invest_url else "configure the invest-server URL",
             }
@@ -592,7 +603,9 @@ class FakeExecutionBridge:
             drivers=[{"id": "fixture", "available": True}],
         )
 
-    async def validate(self, profile: TargetProfile) -> ReadinessReport:
+    async def validate(
+        self, profile: TargetProfile, attacks: list[str] | None = None
+    ) -> ReadinessReport:
         return ReadinessReport(checks=[{"id": "fixture", "label": "fixture", "status": "ready"}])
 
     async def execute(

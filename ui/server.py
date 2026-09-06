@@ -935,10 +935,16 @@ class CheckCreateRequest(BaseModel):
 
 
 @app.post("/api/v1/checks")
-def create_check(request: Request, payload: CheckCreateRequest):
+async def create_check(request: Request, payload: CheckCreateRequest):
     _guard_state_change(request)
+    from diskard.console.runtime import CheckNotReady
+
     try:
-        return _console_runtime().create_check(**payload.model_dump())
+        return await _console_runtime().create_check(**payload.model_dump())
+    except CheckNotReady as exc:
+        return JSONResponse(
+            status_code=409, content={"detail": {"message": str(exc), "checks": exc.checks}}
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
