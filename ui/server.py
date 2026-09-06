@@ -926,6 +926,85 @@ class RerunRequest(BaseModel):
     profile_id: str | None = None
 
 
+class CheckCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    profile_id: str
+    attacks: list[str] | None = Field(default=None, max_length=30)
+    driver: str = "template"
+    submission_id: str = Field(min_length=1, max_length=128)
+
+
+@app.post("/api/v1/checks")
+def create_check(request: Request, payload: CheckCreateRequest):
+    _guard_state_change(request)
+    try:
+        return _console_runtime().create_check(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/v1/checks/{check_id}")
+def get_check(check_id: str):
+    result = _console_runtime().require_store().check(check_id)
+    if result is None:
+        raise HTTPException(404, "Unknown check")
+    return result
+
+
+@app.post("/api/v1/checks/{check_id}/cancel")
+def cancel_check(request: Request, check_id: str):
+    _guard_state_change(request)
+    runtime = _console_runtime()
+    check = get_check(check_id)
+    for run_id in check["run_ids"]:
+        runtime.cancel(run_id)
+    return get_check(check_id)
+
+
+@app.get("/api/v1/checks/{check_id}/report")
+def check_report(check_id: str):
+    import html
+
+    runtime = _console_runtime()
+    check = get_check(check_id)
+    children = [runtime.require_store().run(run_id) for run_id in check["run_ids"]]
+    content = (
+        "<!doctype html><html lang='ru'><meta charset='utf-8'><title>Diskard check</title>"
+        "<style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:20px}"
+        "pre{white-space:pre-wrap;overflow-wrap:anywhere}"
+        "section{border-top:1px solid #ccc;margin-top:24px}</style>"
+        "<h1>Diskard — результаты проверки</h1>"
+        "<p>Сохранённые результаты выбранных сценариев. "
+        "Состояние цели между атаками не восстанавливается; "
+        "проверка не гарантирует обнаружение всех уязвимостей.</p>"
+    )
+    for child in children:
+        summary = child.get("summary") or {}
+        content += "<section><h2>" + html.escape(child["scenario_version"]) + "</h2>"
+        content += "<p>Выполнение: " + html.escape(child["status"]) + "</p>"
+        content += (
+            "<p>Результат движка: " + html.escape(str(summary.get("verdict", "unknown"))) + "</p>"
+        )
+        content += (
+            "<p>"
+            + html.escape(str(summary.get("message") or child.get("error") or "Резюме отсутствует"))
+            + "</p>"
+        )
+        content += "<details><summary>Конфигурация, трасса и доказательства</summary><pre>"
+        content += (
+            html.escape(json.dumps(child, ensure_ascii=False, indent=2, default=str))
+            + "</pre></details></section>"
+        )
+    content += "</html>"
+    if len(content.encode()) > runtime.settings.export_max_bytes:
+        raise HTTPException(413, "Report exceeds configured export limit")
+    return Response(
+        content,
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="diskard-check-{check_id}.html"'},
+    )
+
+
 @app.get("/health/live")
 def health_live():
     return {"status": "live"}
@@ -1020,6 +1099,11 @@ async def validate_target(request: Request, target_id: str):
 @app.get("/api/v1/catalog")
 def durable_catalog(target_id: str | None = Query(default=None)):
     return _console_runtime().catalog(target_id)
+
+
+@app.get("/api/v1/overview")
+def console_overview():
+    return _console_runtime().require_store().overview()
 
 
 @app.get("/api/v1/runs")
@@ -1178,6 +1262,7 @@ app.mount(
 @app.api_route("/reports/{report_id}", methods=["GET", "HEAD"])
 @app.api_route("/compare", methods=["GET", "HEAD"])
 @app.api_route("/settings", methods=["GET", "HEAD"])
+@app.api_route("/checks/{check_id}", methods=["GET", "HEAD"])
 def console_page(view: str | None = None):
     if view is not None and view not in {"trace", "results", "config"}:
         raise HTTPException(404, "unknown console view")

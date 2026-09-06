@@ -35,6 +35,25 @@ def store(tmp_path: Path):
     engine.dispose()
 
 
+def test_full_check_is_atomic_and_retry_does_not_duplicate(store, monkeypatch):
+    saved_profile = store.upsert_profile(profile())
+    kwargs = dict(profile=saved_profile, attacks=["first", "second"], driver="fixture",
+                  submission_id="full-check", source_sha="test")
+    group = store.create_check(**kwargs)
+    assert store.create_check(**kwargs)["id"] == group["id"]
+    assert len(store.check(group["id"])["runs"]) == 2
+    assert store.overview()["counts"]["runs"] == 2
+    original = store.create_run
+    def fail_second(**values):
+        if values["attack"] == "second":
+            raise ValueError("injected failure")
+        return original(**values)
+    monkeypatch.setattr(store, "create_run", fail_second)
+    with pytest.raises(ValueError, match="injected"):
+        store.create_check(**{**kwargs, "submission_id": "rollback"})
+    assert store.list_runs()[1] == 2
+
+
 def test_redaction_covers_nested_headers_urls_and_known_values():
     value = redact(
         {

@@ -356,6 +356,28 @@ class ConsoleRuntime:
             source_sha=self.settings.build_sha,
         )
 
+    def create_check(
+        self, profile_id: str, attacks: list[str] | None, driver: str, submission_id: str
+    ) -> dict[str, Any]:
+        store = self.require_store()
+        profile = store.profile(profile_id)
+        if profile is None:
+            raise ValueError("Unknown target profile")
+        capabilities = self.bridge.capabilities(TargetProfile.model_validate(profile["config"]))
+        available = [item["id"] for item in capabilities.attacks if item.get("available")]
+        selected = available if attacks is None else list(dict.fromkeys(attacks))
+        if not selected or any(attack not in available for attack in selected):
+            raise ValueError("Select at least one available attack")
+        if not any(item["id"] == driver and item.get("available") for item in capabilities.drivers):
+            raise ValueError("Selected driver is unavailable")
+        return store.create_check(
+            profile=profile,
+            attacks=selected,
+            driver=driver,
+            submission_id=submission_id,
+            source_sha=self.settings.build_sha,
+        )
+
     def cancel(self, run_id: str) -> dict[str, Any] | None:
         store = self.require_store()
         result = store.request_cancel(run_id)

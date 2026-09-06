@@ -52,6 +52,8 @@ import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, usePa
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DEMO_MODE, cancelRun, getRun, listRunsPage, rerunRun, drainEvents, saveReport } from "./api";
 import { activeStatus } from "./models";
+import OverviewPage from "./OverviewPage";
+import { LaunchCheckPage, CheckDetailPage } from "./CheckPages";
 import { TargetsPage, NewTargetPage, NewRunPage, SettingsPage, Failure } from "./SetupPages";
 import type { ExecutionStatus, MemoryChange, RunDetail, RunFilters, RunSummary, SecurityOutcome, StageResult, TargetProfile, TraceEvent } from "./types";
 
@@ -142,10 +144,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useEffect(()=>{const listener=(e:KeyboardEvent)=>{if(e.key==="Escape")setMobileNavOpen(false);};window.addEventListener("keydown",listener);return()=>window.removeEventListener("keydown",listener);},[]);
   const nav = [
+    { to: "/", label: "Обзор", icon: LayoutDashboard },
     { to: "/runs", label: "Запуски", icon: Activity },
     { to: "/targets", label: "Цели", icon: Target },
     { to: "/reports", label: "Отчёты", icon: FileText },
-    { to: "/settings", label: "Настройки", icon: Settings2 },
+
   ];
   return <div className="app-frame">
     <a className="skip-link" href="#main-content">К содержимому</a><DemoBanner />
@@ -153,7 +156,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <div className="brand"><div className="brand-mark"><span /></div><div><div className="brand-name">DISKARD</div><div className="brand-subtitle">CONSOLE</div></div></div>
       <nav aria-label="Основная навигация" className="main-nav">
         <div className="nav-label">Рабочее пространство</div>
-        {nav.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setMobileNavOpen(false)} aria-label={label} className={({ isActive }) => cn("nav-link", isActive && "nav-link-active")}><Icon size={17} strokeWidth={1.8} /><span>{label}</span></NavLink>)}
+        {nav.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to==="/"} onClick={() => setMobileNavOpen(false)} aria-label={label} className={({ isActive }) => cn("nav-link", isActive && "nav-link-active")}><Icon size={17} strokeWidth={1.8} /><span>{label}</span></NavLink>)}
       </nav>
       <div className="sidebar-bottom">
         <div className="system-state"><span className="system-state-pulse" /><div><div className="system-state-title">Diskard storage</div><div className="system-state-copy">{DEMO_MODE ? "demo adapter" : "проверяется по API"}</div></div></div>
@@ -162,7 +165,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     </aside>
     {mobileNavOpen && <button className="mobile-nav-scrim" aria-label="Закрыть меню" onClick={() => setMobileNavOpen(false)} />}
     <main id="main-content" tabIndex={-1} className="main-shell">
-      <header className="topbar"><div className="topbar-route"><IconButton label="Открыть навигацию" className="mobile-menu-button" onClick={() => setMobileNavOpen(true)}><Menu size={19} /></IconButton><span className="route-dot" /><span>Расследования</span>{location.pathname.startsWith("/runs/") && <><span className="route-slash">/</span><span className="route-current">Запуск</span></>}</div><div className="topbar-actions"><span className="connection-indicator"><span />{DEMO_MODE ? "demo" : "API"}</span><Link to="/settings" className="topbar-settings"><Settings2 size={16} /> Состояние системы</Link></div></header>
+      <header className="topbar"><div className="topbar-route"><IconButton label="Открыть навигацию" className="mobile-menu-button" onClick={() => setMobileNavOpen(true)}><Menu size={19} /></IconButton><span className="route-dot" /><span>Расследования</span>{location.pathname.startsWith("/runs/") && <><span className="route-slash">/</span><span className="route-current">Запуск</span></>}</div><div className="topbar-actions"><span className="connection-indicator"><span />{DEMO_MODE ? "demo" : "API"}</span><Link to="/" className="topbar-settings"><Settings2 size={16} /> Обзор</Link></div></header>
       <div className="page-wrap">{children}</div>
     </main>
   </div>;
@@ -368,5 +371,5 @@ function ComparePage() {
 }
 
 export default function App() {
-  return <AppShell><Routes><Route path="/" element={<Navigate to="/runs" replace />} /><Route path="/live" element={<Navigate to="/runs" replace />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/new" element={<NewRunPage />} /><Route path="/runs/:id/trace" element={<RunDetailPage mode="trace" />} /><Route path="/runs/:id/results" element={<RunDetailPage mode="results" />} /><Route path="/runs/:id/config" element={<RunDetailPage mode="config" />} /><Route path="/targets" element={<TargetsPage />} /><Route path="/targets/new" element={<NewTargetPage />} /><Route path="/targets/:id/edit" element={<NewTargetPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/reports/:id" element={<ReportPage />} /><Route path="/compare" element={<ComparePage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="*" element={<div className="state-panel"><h1>Страница не найдена</h1><Link to="/runs">К запускам</Link></div>} /></Routes></AppShell>;
+  return <AppShell><Routes><Route path="/" element={<OverviewPage />} /><Route path="/live" element={<Navigate to="/runs" replace />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/new" element={<LaunchCheckPage />} /><Route path="/checks/:id" element={<CheckDetailPage />} /><Route path="/runs/:id/trace" element={<RunDetailPage mode="trace" />} /><Route path="/runs/:id/results" element={<RunDetailPage mode="results" />} /><Route path="/runs/:id/config" element={<RunDetailPage mode="config" />} /><Route path="/targets" element={<TargetsPage />} /><Route path="/targets/new" element={<NewTargetPage />} /><Route path="/targets/:id/edit" element={<NewTargetPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/reports/:id" element={<ReportPage />} /><Route path="/compare" element={<ComparePage />} /><Route path="/settings" element={<Navigate to="/" replace />} /><Route path="*" element={<div className="state-panel"><h1>Страница не найдена</h1><Link to="/runs">К запускам</Link></div>} /></Routes></AppShell>;
 }

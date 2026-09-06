@@ -77,6 +77,21 @@ async def test_http_operator_journey(tmp_path, monkeypatch):
                 "/api/v1/runs", json={**payload, "budget": "SENSITIVE-invalid-key"}
             )
             assert rejected.status_code == 422 and "SENSITIVE" not in rejected.text
+            check = await client.post(
+                "/api/v1/checks",
+                json={
+                    "profile_id": "fixture",
+                    "driver": "fixture",
+                    "submission_id": "all-scenarios",
+                },
+            )
+            assert check.status_code == 200, check.text
+            check_id = check.json()["id"]
+            assert check.json()["attacks"] == ["fixture"]
+            assert len((await client.get(f"/api/v1/checks/{check_id}")).json()["runs"]) == 1
+            assert (await client.post(f"/api/v1/checks/{check_id}/cancel")).status_code == 200
+            assert (await client.get(f"/api/v1/checks/{check_id}/report")).status_code == 200
+            assert (await client.get("/api/v1/overview")).json()["checks"][0]["id"] == check_id
         finally:
             await runtime.stop()
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -41,8 +42,21 @@ except ImportError as exc:  # pragma: no cover
         "The durable console needs SQLAlchemy. Install diskard[console] or diskard[dev]."
     ) from exc
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 metadata = MetaData()
+
+checks = Table(
+    "checks",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("submission_id", String(128), nullable=False, unique=True),
+    Column("request_digest", String(64), nullable=False),
+    Column("profile_id", String(80), nullable=False),
+    Column("profile_version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("attacks", JSON, nullable=False),
+    Column("run_ids", JSON, nullable=False),
+)
 
 target_profiles = Table(
     "target_profiles",
@@ -364,6 +378,7 @@ class RunStore:
         parent_run_id: str | None = None,
         client_submission_id: str | None = None,
         replay_spec: dict[str, Any] | None = None,
+        connection: Connection | None = None,
     ) -> dict[str, Any]:
         snapshot = redact(
             {
@@ -395,7 +410,9 @@ class RunStore:
             "last_event_sequence": 0,
             "client_submission_id": client_submission_id,
         }
-        with self.engine.begin() as connection:
+        with (
+            nullcontext(connection) if connection is not None else self.engine.begin()
+        ) as connection:
             if client_submission_id:
                 if connection.dialect.name == "postgresql":
                     connection.execute(
@@ -418,6 +435,68 @@ class RunStore:
             if replay_spec is not None:
                 self._insert_replay(connection, run_id, replay_spec)
         return values
+
+    def create_check(
+        self,
+        *,
+        profile: dict[str, Any],
+        attacks: list[str],
+        driver: str,
+        submission_id: str,
+        source_sha: str,
+    ) -> dict[str, Any]:
+        request_digest = digest({"profile": profile["id"], "attacks": attacks, "driver": driver})
+        with self.engine.begin() as connection:
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": "check:" + submission_id},
+                )
+            existing = _row(
+                connection.execute(
+                    select(checks).where(checks.c.submission_id == submission_id)
+                ).first()
+            )
+            if existing:
+                if existing["request_digest"] != request_digest:
+                    raise ValueError("submission_id was already used for another check")
+                return existing
+            check_id = uuid4().hex
+            run_ids = []
+            for attack in attacks:
+                run_id = uuid4().hex
+                self.create_run(
+                    run_id=run_id,
+                    profile=profile,
+                    mode="experiment",
+                    origin="console-check",
+                    attack=attack,
+                    driver=driver,
+                    options={"budget": 1, "repeat": 1, "check_id": check_id},
+                    source_sha=source_sha,
+                    connection=connection,
+                )
+                run_ids.append(run_id)
+            row = {
+                "id": check_id,
+                "submission_id": submission_id,
+                "request_digest": request_digest,
+                "profile_id": profile["id"],
+                "profile_version": profile["version"],
+                "created_at": _now(),
+                "attacks": attacks,
+                "run_ids": run_ids,
+            }
+            connection.execute(insert(checks).values(**row))
+        return row
+
+    def check(self, check_id: str) -> dict[str, Any] | None:
+        with self.engine.connect() as connection:
+            row = _row(connection.execute(select(checks).where(checks.c.id == check_id)).first())
+        if row is None:
+            return None
+        children = [self.run(run_id, include_events=False) for run_id in row["run_ids"]]
+        return {**row, "runs": children}
 
     def _replay_values(self, run_id: str, spec: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -468,6 +547,60 @@ class RunStore:
             if include_events:
                 result["events"] = self._events(connection, run_id)
             return result
+
+    def overview(self) -> dict[str, Any]:
+        """Aggregate the whole history, excluding explicit synthetic executions."""
+        real = and_(
+            runs.c.origin.notin_(["test", "demo"]),
+            func.coalesce(runs.c.summary["synthetic"].as_boolean(), False) == False,  # noqa: E712
+        )
+        verdict = runs.c.summary["verdict"].as_string()
+        with self.engine.connect() as connection:
+            recent_checks = [
+                _row(row)
+                for row in connection.execute(
+                    select(checks).order_by(desc(checks.c.created_at)).limit(6)
+                )
+            ]
+            groups = connection.execute(
+                select(runs.c.status, verdict, func.count())
+                .where(real)
+                .group_by(runs.c.status, verdict)
+            ).all()
+            total = connection.execute(select(func.count()).select_from(runs)).scalar_one()
+            targets = connection.execute(
+                select(func.count()).select_from(target_profiles)
+            ).scalar_one()
+            active = [
+                _row(row)
+                for row in connection.execute(
+                    select(runs)
+                    .where(real, runs.c.status.in_(["queued", "running", "cancelling"]))
+                    .order_by(desc(runs.c.submitted_at))
+                    .limit(6)
+                )
+            ]
+        counts = {"runs": 0, "active": 0, "findings": 0, "errors": 0, "unknown": 0}
+        for status, outcome, count in groups:
+            counts["runs"] += count
+            counts["active"] += count if status in {"queued", "running", "cancelling"} else 0
+            counts["findings"] += count if outcome in {"vulnerable", "fail"} else 0
+            counts["errors"] += count if status in {"failed", "interrupted"} else 0
+            counts["unknown"] += (
+                count
+                if status not in {"queued", "running", "cancelling"}
+                and outcome not in {"vulnerable", "fail", "clean", "pass"}
+                else 0
+            )
+        recent, _ = self.list_runs(limit=8)
+        return {
+            "checks": recent_checks,
+            "counts": counts,
+            "targets": targets,
+            "synthetic_runs": total - counts["runs"],
+            "active": active,
+            "recent": recent,
+        }
 
     def list_runs(
         self,

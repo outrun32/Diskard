@@ -13,6 +13,8 @@ beforeEach(()=>{
  fetchMock=vi.fn(async(path:string,init?:RequestInit)=>{
  const u=new URL(path,"http://local");let data:unknown;
  if(u.pathname.endsWith("/events"))data={items:[{...event(1),data:{message:hostile}},memoryEvent,event(3)],last_event_sequence:3};
+ else if(u.pathname==="/api/v1/checks")data={id:"created-check"};
+ else if(u.pathname==="/api/v1/checks/created-check")data={id:"created-check",profile_id:"investment-local",profile_version:3,attacks:["policy-test"],runs:[]};
  else if(u.pathname==="/api/v1/runs"&&init?.method==="POST")data={...run,id:"created-run"};
  else if(u.pathname==="/api/v1/runs")data={items:[run],total:1,offset:0,limit:50};
  else if(u.pathname==="/api/v1/targets")data={items:[profile]};
@@ -38,10 +40,10 @@ describe("operator journey using actual API shapes",()=>{
  expect(fetchMock.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
  });
  it("launches with catalog values and backend-supported field names",async()=>{
- mount("/runs/new");await screen.findByRole("option",{name:"policy-test"});await userEvent.click(screen.getByRole("button",{name:"Создать запуск"}));
- await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/runs"&&init?.method==="POST")).toBe(true));
- const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/runs"&&init?.method==="POST")!;
- expect(JSON.parse(String(call[1]?.body))).toMatchObject({profile_id:"investment-local",attack:"policy-test",driver:"template",repeat:1});
+ mount("/runs/new");await screen.findByRole("option",{name:"Test target"});await userEvent.selectOptions(screen.getByRole("combobox",{name:"Цель"}),"investment-local");await waitFor(()=>expect(screen.getByRole("button",{name:"Атаковать всеми способами"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Атаковать всеми способами"}));
+ await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")).toBe(true));
+ const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
+ expect(JSON.parse(String(call[1]?.body))).toMatchObject({profile_id:"investment-local",attacks:["policy-test"],driver:"template"});
  });
  it("shows API failures as failures",async()=>{
  fetchMock.mockImplementation(async()=>new Response('{"detail":"storage offline"}',{status:503}));mount("/runs");
