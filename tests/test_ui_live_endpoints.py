@@ -65,13 +65,7 @@ def test_recorded_live_control_and_endpoint_are_available():
     assert "/api/live/reset" in paths
 
     html_path = (
-        ROOT
-        / "examples"
-        / "connectors"
-        / "investment_stand"
-        / "ui"
-        / "static"
-        / "live.html"
+        ROOT / "examples" / "connectors" / "investment_stand" / "ui" / "static" / "live.html"
     )
     html = html_path.read_text(encoding="utf-8")
     assert 'id="btnRecordedLive"' in html

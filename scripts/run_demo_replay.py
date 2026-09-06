@@ -68,9 +68,7 @@ def _trial_summary(result_path: Path | None, returncode: int, index: int) -> dic
         "valid_runs": metrics.get("valid_runs"),
         "technical_errors": metrics.get("infrastructure_errors"),
         "confirmed": confirmed,
-        "isolation_verified": (data.get("presentation") or {}).get("isolation", {}).get(
-            "verified"
-        ),
+        "isolation_verified": (data.get("presentation") or {}).get("isolation", {}).get("verified"),
     }
 
 
