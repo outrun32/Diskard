@@ -174,6 +174,8 @@ uv build
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Report security issues through [SECURITY.md](./SECURITY.md).
 
+To connect another agent system or an existing test harness, follow the [integration guide](./docs/integrating-agent-systems.md).
+
 ## License
 
 [MIT](./LICENSE)
