@@ -2,71 +2,116 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#26221a">
 <title>Diskard console</title>
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem('diskard-theme') === 'light') {
+        document.documentElement.classList.add('light');
+      }
+    } catch (e) {}
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700&family=Alumni+Sans:wght@300;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0e14; --panel: #12181f; --panel-2: #0d1218; --border: #253141; --text: #d8dee9;
-    --muted: #7c8a9e; --accent: #5aa9ff; --accent-dim: #2b6cb0; --ok: #3fd97f; --bad: #ff5f6d;
-    --warn: #f0b429; --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
-    --mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
-    --sans: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color-scheme: dark;
+    --bg: oklch(15% .006 95); --panel: oklch(20% .006 95); --panel-2: oklch(30% .008 95);
+    --border: oklch(78% 0 0 / .16); --text: oklch(88% 0 0); --muted: oklch(72% 0 0); --faint: oklch(58% 0 0);
+    --accent: oklch(84% .19 80.46); --accent-deep: oklch(61% .085 78); --accent-ink: oklch(16% .03 80);
+    --accent-bg: oklch(84% .19 80.46 / .14); --accent-border: oklch(84% .19 80.46 / .4);
+    --accent-glow: oklch(84% .19 80.46 / .05);
+    --ok: oklch(74% .14 152); --ok-bg: oklch(72% .14 152 / .16); --ok-border: oklch(72% .14 152 / .4);
+    --bad: oklch(70% .18 28); --bad-bg: oklch(62% .18 28 / .16); --bad-border: oklch(62% .18 28 / .42);
+    --warn: oklch(80% .15 70); --warn-bg: oklch(80% .15 70 / .16); --warn-border: oklch(80% .15 70 / .4);
+    --radius: 8px; --radius-sm: 4px; --radius-pill: 999px;
+    --shadow: 0 10px 28px oklch(0% 0 0 / .45); --shadow-sm: 0 2px 6px oklch(0% 0 0 / .35);
+    --mono: "SFMono-Regular", "Roboto Mono", "JetBrains Mono", Consolas, monospace;
+    --sans: "Albert Sans", "Avenir Next", "Helvetica Neue", Arial, system-ui, sans-serif;
+    --display: "Alumni Sans", "Albert Sans", Arial, sans-serif;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  .light {
+    color-scheme: light;
+    --bg: oklch(97% .012 95); --panel: oklch(99% .008 95); --panel-2: oklch(91% .012 95);
+    --border: oklch(25% .02 95 / .14); --text: oklch(25% .018 95); --muted: oklch(45% .015 95); --faint: oklch(58% .012 95);
+    --accent: oklch(49% .09 188); --accent-deep: oklch(70% .12 188); --accent-ink: oklch(99% .01 95);
+    --accent-bg: oklch(49% .09 188 / .10); --accent-border: oklch(49% .09 188 / .35);
+    --accent-glow: oklch(49% .09 188 / .05);
+    --ok: oklch(45% .13 152); --ok-bg: oklch(45% .13 152 / .10); --ok-border: oklch(45% .13 152 / .35);
+    --bad: oklch(52% .17 30); --bad-bg: oklch(52% .17 30 / .10); --bad-border: oklch(52% .17 30 / .35);
+    --warn: oklch(50% .15 70); --warn-bg: oklch(50% .15 70 / .12); --warn-border: oklch(50% .15 70 / .35);
+    --shadow: 0 10px 28px oklch(25% .02 95 / .14); --shadow-sm: 0 2px 6px oklch(25% .02 95 / .08);
   }
   * { box-sizing: border-box; }
   body {
     background:
-      radial-gradient(1200px 480px at 12% -10%, rgba(90,169,255,.06), transparent 60%),
+      radial-gradient(1200px 480px at 12% -10%, var(--accent-glow), transparent 60%),
       var(--bg);
     color: var(--text); margin: 0; padding: 28px 32px 48px;
     font-family: var(--sans); font-size: 14px; line-height: 1.45;
+    transition: background-color .2s var(--ease), color .2s var(--ease);
   }
   .wrap { max-width: 1360px; margin: 0 auto; }
   .kicker { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .12em;
     text-transform: uppercase; margin-bottom: 6px; }
-  h1 { font-size: 21px; font-weight: 650; margin: 0 0 4px; letter-spacing: -.01em;
+  h1 { font-family: var(--display); font-size: 26px; font-weight: 500; margin: 0 0 4px; letter-spacing: -.01em;
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .header-row { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 20px; }
+  .header-row { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 20px;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+  .header-text { flex: 1; min-width: 0; }
   .sub { color: var(--muted); margin-bottom: 0; font-size: 12.5px; }
+  .theme-toggle {
+    flex: none; width: 34px; height: 34px; padding: 0; border-radius: var(--radius-sm);
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    font-size: 15px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .theme-toggle:hover { border-color: var(--accent-border); color: var(--accent); }
   .grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
   .panel {
     background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow);
+    padding: 16px 18px; margin-bottom: 18px; box-shadow: var(--shadow-sm);
   }
   .panel h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700;
     color: var(--muted); margin: 0 0 12px; display: flex; align-items: center; gap: 7px; }
   .panel h2::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent-dim); flex: none; }
+    background: var(--accent-deep); flex: none; }
   label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .03em;
     text-transform: uppercase; color: var(--muted); margin: 12px 0 5px; }
   input[type=number] {
     width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: 8px 10px; font-size: 13px;
+    border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px;
   }
-  input[type=number]:focus, button:focus-visible { outline: 2px solid var(--accent-dim); outline-offset: 1px; }
+  input[type=number]:focus, button:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 1px; }
   button {
-    width: 100%; margin-top: 12px; background: var(--accent); color: #071019; border: none;
-    border-radius: 7px; padding: 10px; font-weight: 650; font-size: 13px; cursor: pointer;
+    width: 100%; margin-top: 12px; background: var(--accent); color: var(--accent-ink); border: none;
+    border-radius: var(--radius-sm); padding: 10px; font-weight: 650; font-size: 13px; cursor: pointer;
     transition: filter .12s ease, transform .12s ease;
   }
   button:hover:not(:disabled) { filter: brightness(1.08); }
   button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { background: #232b36; color: var(--muted); cursor: not-allowed; }
+  button:disabled { background: var(--panel-2); color: var(--muted); cursor: not-allowed; }
   button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
-  button.secondary:hover:not(:disabled) { border-color: var(--accent-dim); filter: none; }
+  button.secondary:hover:not(:disabled) { border-color: var(--accent-border); filter: none; }
   .cus-row { display: flex; gap: 8px; font-size: 12px; color: var(--muted); }
   .cus-row code { color: var(--text); background: var(--panel-2); border: 1px solid var(--border);
     border-radius: 4px; padding: 1px 5px; font-family: var(--mono); }
   pre#log {
-    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px;
     height: 340px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
     font-family: var(--mono); font-size: 12px; margin: 0;
   }
   a.navlink { color: var(--accent); text-decoration: none; font-weight: 500; }
   a.navlink:hover { text-decoration: underline; }
-  .status-badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 10.5px;
+  .status-badge { display: inline-block; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 10.5px;
     font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-  .status-running { background: #3a2e05; color: var(--warn); }
-  .status-done { background: #0c3320; color: var(--ok); }
-  .status-error { background: #3a1013; color: var(--bad); }
+  .status-running { background: var(--warn-bg); color: var(--warn); }
+  .status-done { background: var(--ok-bg); color: var(--ok); }
+  .status-error { background: var(--bad-bg); color: var(--bad); }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
@@ -80,14 +125,17 @@
   .metric .n { font-size: 22px; font-weight: 700; }
   .metric .l { font-size: 11px; color: var(--muted); }
   #findingDetail {
-    background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px;
     font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-word;
     max-height: 400px; overflow-y: auto; display: none;
   }
   #targetBadge {
-    display: inline-block; padding: 3px 11px; border-radius: 20px;
-    font-size: 11px; font-weight: 650; background: rgba(63,217,127,.12); color: var(--ok);
-    border: 1px solid rgba(63,217,127,.4); vertical-align: middle;
+    display: inline-block; padding: 3px 11px; border-radius: var(--radius-pill);
+    font-size: 11px; font-weight: 650; background: var(--ok-bg); color: var(--ok);
+    border: 1px solid var(--ok-border); vertical-align: middle;
+  }
+  .payload-preview {
+    margin: 8px 0; padding: 8px; background: var(--panel-2); border-radius: var(--radius-sm); font-size: 12.5px;
   }
 </style>
 </head>
@@ -95,9 +143,12 @@
 <div class="wrap">
 
 <div class="header-row">
-  <div class="kicker">Diskard · Console</div>
-  <h1>Консоль живой атаки <span id="targetBadge" hidden></span><span style="font-size:12.5px; font-weight:500; margin-left:auto"><a class="navlink" href="/live">живая атака &rarr;</a></span></h1>
-  <div class="sub">cross-user global-policy-poisoning против genai-invest-agent-memory-stand · <span id="cusLine">...</span></div>
+  <div class="header-text">
+    <div class="kicker">Diskard · Console</div>
+    <h1>Консоль живой атаки <span id="targetBadge" hidden></span><span style="font-size:12.5px; font-weight:500; margin-left:auto"><a class="navlink" href="/live">живая атака &rarr;</a></span></h1>
+    <div class="sub">cross-user global-policy-poisoning против genai-invest-agent-memory-stand · <span id="cusLine">...</span></div>
+  </div>
+  <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Светлая/тёмная тема" title="Светлая/тёмная тема">◐</button>
 </div>
 
 <div class="grid">
@@ -146,6 +197,14 @@
 <script>
 let pollTimer = null;
 let busy = false;
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const isLight = root.classList.toggle('light');
+  try { localStorage.setItem('diskard-theme', isLight ? 'light' : 'dark'); } catch (e) {}
+  document.getElementById('themeToggle').textContent = isLight ? '◑' : '◐';
+}
+document.getElementById('themeToggle').textContent = document.documentElement.classList.contains('light') ? '◑' : '◐';
 
 function setBusy(v) {
   busy = v;
@@ -241,7 +300,7 @@ function renderResult(job) {
     const d = f ? f.details : null;
     body.innerHTML = `
       <div class="sub">${f ? f.found_by : ''}</div>
-      <div style="margin:8px 0;padding:8px;background:#0d1117;border-radius:5px;font-size:12.5px">${escapeHtml(r.campaign.winning_message)}</div>
+      <div class="payload-preview">${escapeHtml(r.campaign.winning_message)}</div>
       ${d ? `<div class="metrics">
         <div class="metric"><div class="n">${yn(d.leaked_in_vulnerable_mode)}</div><div class="l">Leak (vuln)</div></div>
         <div class="metric"><div class="n">${yn(d.leaked_in_protected_mode)}</div><div class="l">Leak (protected)</div></div>
