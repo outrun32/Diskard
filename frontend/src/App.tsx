@@ -167,7 +167,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </aside>
     <main id="main-content" tabIndex={-1} className="main-shell">
-      <header className="topbar" />
       <div className="page-wrap">{children}</div>
     </main>
   </div>;
