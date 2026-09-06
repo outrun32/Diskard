@@ -43,6 +43,20 @@ def test_live_attacks_lists_all_four_with_auto_attack_flag():
     assert by_name["cross-user-direct-memory-leak"]["auto_attack_capable"] is False
 
 
+def test_recorded_presentation_exposes_only_the_versioned_ui_contract():
+    with _client() as client:
+        resp = client.get("/api/live/recorded")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body) == {"fixture_version", "source", "presentation"}
+    assert body["presentation"]["schema_version"] == 1
+    assert body["presentation"]["isolation"]["verified"] is True
+    serialized = resp.text
+    for forbidden in ('"payload"', '"reply"', '"details"', '"api_key"', '"raw_response"'):
+        assert forbidden not in serialized
+
+
 def test_live_start_rejects_unknown_attack():
     with _client() as client:
         resp = client.post(

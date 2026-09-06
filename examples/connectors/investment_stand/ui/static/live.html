@@ -193,6 +193,7 @@
   </div>
   <button id="btnStart" onclick="startLive()">Start</button>
   <button id="btnAudit" class="secondary" onclick="startAudit()">Полный цикл (все семьи)</button>
+  <button id="btnRecorded" class="secondary" onclick="showRecorded()">Записанный результат</button>
   <span id="jobBadge"></span>
 </div>
 
@@ -283,6 +284,60 @@ async function friendlyError(r) {
   let detail = '';
   try { detail = (await r.json()).detail || ''; } catch { detail = await r.text(); }
   return `Ошибка запуска (${r.status}): ${detail}`;
+}
+
+async function showRecorded() {
+  if (pollTimer) clearInterval(pollTimer);
+  resetRunUI();
+  document.getElementById('jobBadge').innerHTML = badge('done');
+  const r = await fetch('/api/live/recorded');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnAudit').disabled = false;
+  if (!r.ok) {
+    document.getElementById('transcript').textContent = await friendlyError(r);
+    return;
+  }
+  renderRecorded(await r.json());
+}
+
+function renderRecorded(fixture) {
+  const presentation = fixture.presentation || {};
+  const timeline = presentation.timeline || [];
+  const attempts = presentation.attempts || [];
+  const metrics = presentation.metrics || {};
+  const stages = presentation.stages || {};
+
+  document.getElementById('transcript').innerHTML = timeline.map(event => `
+    <div class="step risk-${event.outcome === false ? 'commit' : 'info'}">
+      <span class="who">${escapeHtml(event.source || 'system')}</span>
+      <span class="label">${escapeHtml(event.phase || '')} · ${escapeHtml(event.status || '')}</span>
+      <div class="msg">${escapeHtml(event.summary || event.type || '')}</div>
+    </div>`).join('') || '<div class="sub">Нет событий.</div>';
+
+  document.getElementById('memoryEvents').innerHTML = attempts.map(attempt => {
+    const passed = Object.values(attempt.stage_verdicts || {}).filter(value => value === true).length;
+    return `<div class="mem-event ${attempt.failure_reason === 'terminal_goal_reached' ? 'mem-clean' : 'mem-info'}">
+      <div class="mem-who">attempt ${attempt.attempt}</div>
+      <div>${passed} отмеченных этапов · ${escapeHtml(attempt.failure_reason || 'complete')}</div>
+    </div>`;
+  }).join('') || '<div class="sub">Нет дополнительных попыток.</div>';
+
+  const source = fixture.source || {};
+  const isolation = presentation.isolation || {};
+  document.getElementById('verdict').innerHTML = `
+    <div class="verdict clean">RECORDED · ${escapeHtml(source.status || 'complete')}</div>
+    <div class="sub">schema v${escapeHtml(String(presentation.schema_version || '—'))} · run ${escapeHtml(source.run_id || '—')}</div>`;
+
+  const rows = [
+    ...Object.entries(stages).map(([name, value]) => [name, value === null ? 'unknown' : String(value)]),
+    ['valid_runs', metrics.valid_runs],
+    ['confirmed_runs', metrics.confirmed_runs],
+    ['end_to_end_asr', metrics.end_to_end_asr],
+    ['isolation_verified', isolation.verified],
+  ];
+  document.querySelector('#detailsTable tbody').innerHTML = rows.map(([name, value]) =>
+    `<tr><td>${escapeHtml(name)}</td><td class="val">${escapeHtml(String(value ?? 'unknown'))}</td></tr>`
+  ).join('');
 }
 
 async function startLive() {

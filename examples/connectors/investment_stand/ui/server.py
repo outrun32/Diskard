@@ -29,6 +29,7 @@ from pydantic import BaseModel
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLES_DIR = ROOT / "examples"
 IDENTITIES_CACHE = EXAMPLES_DIR / ".identities.json"
+RECORDED_PRESENTATION = Path(__file__).parent / "fixtures" / "confirmed-lifecycle.json"
 
 load_dotenv(ROOT / ".env")
 
@@ -697,6 +698,15 @@ def list_live_attacks():
     return [
         {"name": name, "auto_attack_capable": name in AUTO_ATTACK_CAPABLE} for name in KNOWN_ATTACKS
     ]
+
+
+@app.get("/api/live/recorded")
+def get_recorded_presentation():
+    try:
+        fixture = json.loads(RECORDED_PRESENTATION.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "recorded presentation is unavailable") from exc
+    return JSONResponse(content=fixture)
 
 
 @app.post("/api/live/start")

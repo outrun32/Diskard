@@ -122,7 +122,22 @@ Every scan records `result.json` and `junit.xml` in its run directory. Confirmed
 ```bash
 uv run diskard report RUN_ID
 uv run diskard replay RUN_ID
+uv run diskard replay RUN_ID --repeats 1
 ```
+
+For a bounded demo run, use the recorded input and stop after the first confirmed trial:
+
+```bash
+uv run --extra investment-stand \
+  python scripts/run_demo_replay.py \
+  examples/connectors/investment_stand/demo/confirmed-replay.json \
+  --max-trials 6
+```
+
+The recorded UI data lives at
+`examples/connectors/investment_stand/ui/fixtures/confirmed-lifecycle.json`.
+It contains only the versioned `presentation` contract. The live console exposes
+it through `GET /api/live/recorded` and the **Записанный результат** control.
 
 Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
 
