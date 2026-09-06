@@ -29,6 +29,30 @@ from diskard.console.settings import ConsoleSettings
 log = logging.getLogger("diskard.console")
 
 
+def default_local_profile() -> TargetProfile:
+    """Return the zero-configuration profile for the bundled local stand."""
+    return TargetProfile(
+        id="investment-local",
+        name="Local investment stand",
+        adapter="investment-stand",
+        base_url=os.getenv("DISKARD_TARGET_URL", "http://host.docker.internal:8600"),
+        actors={
+            "attacker": {"cus": "1001"},
+            "trigger_user": {"cus": "1002"},
+            "data_subject": {"cus": "1003"},
+            "control": {"cus": "1004"},
+        },
+        adapter_options={
+            "auto_bootstrap": True,
+            "keycloak_url": "http://host.docker.internal:8180",
+            "keycloak_realm": "genai-stand",
+            "ui_client_id": "streamlit-ui",
+            "agent_api_url": "http://host.docker.internal:8600",
+            "invest_url": "http://host.docker.internal:8200",
+        },
+    )
+
+
 class CheckNotReady(ValueError):
     def __init__(self, checks):
         super().__init__("Цель не готова к проверке. Исправьте подключение или профиль.")
@@ -83,6 +107,7 @@ class ConsoleRuntime:
             self.store = RunStore(self.engine, event_max_bytes=self.settings.event_max_bytes)
             self.store.ping()
             self._import_startup_profiles()
+            self._ensure_default_profile()
             self.lease = self.store.acquire_executor()
             self.store.mark_orphans_interrupted()
             self.started = True
@@ -124,6 +149,13 @@ class ConsoleRuntime:
                     "explicit re-import required",
                     profile.id,
                 )
+
+    def _ensure_default_profile(self) -> None:
+        if self.store is None or self.store.profiles():
+            return
+        profile = default_local_profile()
+        self.store.upsert_profile(profile)
+        log.info("created zero-configuration local target profile %s", profile.id)
 
     async def stop(self) -> None:
         self.started = False
@@ -227,8 +259,9 @@ class ConsoleRuntime:
                 "target/profile for live acceptance.",
             ],
             "secret_instructions": (
-                "Set referenced *_ENV values in .env or mount files below "
-                "/run/secrets or /config/secrets. "
+                "The bundled local investment profile bootstraps its standard test "
+                "identities automatically. Custom profiles can use referenced *_ENV "
+                "values in .env or mount files below /run/secrets or /config/secrets. "
                 "The console shows only configured/missing state."
             ),
         }
@@ -236,6 +269,25 @@ class ConsoleRuntime:
     def public_profile(self, row: dict[str, Any]) -> dict[str, Any]:
         config = row.get("config") or {}
         actors = config.get("actors", {})
+        expected_local_actors = {
+            "attacker": "1001",
+            "trigger_user": "1002",
+            "data_subject": "1003",
+            "control": "1004",
+        }
+        legacy_local_profile = (
+            config.get("adapter") == "investment-stand"
+            and config.get("base_url") == "http://host.docker.internal:8600"
+            and all(
+                isinstance(actors.get(role), dict) and actors[role].get("cus") == cus
+                for role, cus in expected_local_actors.items()
+            )
+        )
+        auto_bootstrap = (
+            config.get("adapter_options", {}).get("auto_bootstrap") is True
+            or config.get("id") == "investment-local"
+            or legacy_local_profile
+        )
         public_actors = {}
         for role, actor in actors.items():
             refs = {
@@ -248,10 +300,13 @@ class ConsoleRuntime:
                 or (key.endswith("_file") and bool(value))
                 for key, value in refs.items()
             )
+            if auto_bootstrap:
+                configured = True
             public_actors[role] = {
                 "cus": actor.get("cus"),
                 "credential_refs": refs,
                 "configured": configured,
+                "auto_bootstrap": auto_bootstrap,
             }
         return {
             "id": row["id"],

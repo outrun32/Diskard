@@ -86,6 +86,26 @@ def _url_is_supported(base_url: str) -> bool:
     return "/models/chat/completions" not in base_url
 
 
+def _auto_bootstrap_enabled(profile: TargetProfile) -> bool:
+    if profile.adapter_options.get("auto_bootstrap") is True or profile.id == "investment-local":
+        return True
+    # Keep the already-created local profile usable after upgrading an installation.
+    expected_actors = {
+        "attacker": "1001",
+        "trigger_user": "1002",
+        "data_subject": "1003",
+        "control": "1004",
+    }
+    return (
+        profile.adapter == "investment-stand"
+        and profile.base_url == "http://host.docker.internal:8600"
+        and all(
+            profile.actors.get(role) is not None and profile.actors[role].cus == cus
+            for role, cus in expected_actors.items()
+        )
+    )
+
+
 def _suite_status(suite_result: Any) -> str:
     status = getattr(suite_result, "status", None)
     if status is not None:
@@ -194,6 +214,7 @@ class InvestmentExecutionBridge:
             )
 
         selected = set(KNOWN_ATTACKS if attacks is None else attacks)
+        auto_bootstrap = _auto_bootstrap_enabled(profile)
         required_roles = {"attacker", "trigger_user"}
         if selected & {"cross-user-global-policy-poisoning", "compaction-policy-poisoning"}:
             required_roles.add("data_subject")
@@ -219,26 +240,34 @@ class InvestmentExecutionBridge:
                 )
             except (OSError, BridgeError):
                 configured = False
+            detail = actor.credential_env or actor.credential_file or "not configured"
+            if auto_bootstrap and not (actor.credential_env or actor.credential_file):
+                detail = "automatic local bootstrap"
             checks.append(
                 {
                     "id": f"actor:{role}",
                     "label": f"{role} credentials",
-                    "status": "ready" if configured else "blocked",
-                    "detail": actor.credential_env or actor.credential_file or "not configured",
+                    "status": "ready" if configured or auto_bootstrap else "blocked",
+                    "detail": detail,
                     "reason": None
-                    if configured
+                    if configured or auto_bootstrap
                     else "set the referenced env variable or mounted secret file",
                 }
             )
 
         mongo_ref = profile.adapter_options.get("mongo_uri_env")
-        mongo_configured = bool(mongo_ref and os.getenv(str(mongo_ref)))
+        mongo_uri = os.getenv(str(mongo_ref)) if mongo_ref else None
+        if not mongo_uri and auto_bootstrap:
+            mongo_uri = str(
+                profile.adapter_options.get("mongo_uri", "mongodb://host.docker.internal:27017")
+            ) or None
+        mongo_configured = bool(mongo_uri)
         checks.append(
             {
                 "id": "evidence:mongo",
                 "label": "Mongo evidence collector",
                 "status": "ready" if mongo_configured else "blocked",
-                "detail": mongo_ref or "missing mongo_uri_env",
+                "detail": mongo_ref or mongo_uri or "missing mongo_uri_env",
                 "reason": None
                 if mongo_configured
                 else "configure a non-secret Mongo URI reference",
@@ -286,10 +315,23 @@ class InvestmentExecutionBridge:
         )
         return ReadinessReport(checks=checks)
 
-    def _actors(self, profile: TargetProfile, *, required_roles: set[str]) -> dict[str, Any]:
+    async def _actors(self, profile: TargetProfile, *, required_roles: set[str]) -> dict[str, Any]:
         from examples.connectors.investment_stand.models import Actor
 
         result: dict[str, Actor] = {}
+        auto_bootstrap = _auto_bootstrap_enabled(profile)
+        bootstrap = None
+        if auto_bootstrap:
+            from examples.connectors.investment_stand.identity import KeycloakBootstrap
+
+            options = profile.adapter_options
+            bootstrap = KeycloakBootstrap(
+                keycloak_url=str(options.get("keycloak_url", "http://host.docker.internal:8180")),
+                realm=str(options.get("keycloak_realm", "genai-stand")),
+                ui_client_id=str(options.get("ui_client_id", "streamlit-ui")),
+                ui_client_secret=str(options.get("ui_client_secret", "streamlit-ui-secret")),
+                agent_api_url=str(options.get("agent_api_url", profile.base_url)),
+            )
         for role in required_roles:
             spec = profile.actors.get(role)
             if spec is None:
@@ -299,13 +341,18 @@ class InvestmentExecutionBridge:
                 spec.credential_file,
                 secret_roots=self.secret_roots,
             )
-            if not api_key:
-                raise BridgeError(f"credential reference for actor role {role!r} is not configured")
             access_token = _read_ref(
                 spec.access_token_env,
                 spec.access_token_file,
                 secret_roots=self.secret_roots,
             )
+            if auto_bootstrap and bootstrap is not None:
+                if not access_token:
+                    access_token = await bootstrap.get_user_access_token(spec.cus)
+                if not api_key:
+                    api_key = await bootstrap.create_api_key(access_token)
+            if not api_key:
+                raise BridgeError(f"credential reference for actor role {role!r} is not configured")
             result[role] = Actor(cus=spec.cus, api_key=api_key, access_token=access_token)
         return result
 
@@ -344,7 +391,7 @@ class InvestmentExecutionBridge:
             required.add("data_subject")
         if run_spec.attack == "delayed-recommendation-manipulation":
             required.add("control")
-        actors = self._actors(run_spec.profile, required_roles=required)
+        actors = await self._actors(run_spec.profile, required_roles=required)
         secret_values = tuple(
             value
             for actor in actors.values()
@@ -354,6 +401,10 @@ class InvestmentExecutionBridge:
         config = run_spec.profile
         mongo_ref = config.adapter_options.get("mongo_uri_env")
         mongo_uri = os.getenv(str(mongo_ref)) if mongo_ref else None
+        if not mongo_uri and _auto_bootstrap_enabled(config):
+            mongo_uri = str(
+                config.adapter_options.get("mongo_uri", "mongodb://host.docker.internal:27017")
+            ) or None
         if not mongo_uri:
             raise BridgeError("Mongo evidence collector is not configured")
         secret_values += (mongo_uri,)

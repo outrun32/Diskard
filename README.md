@@ -86,6 +86,18 @@ Install the optional local console dependencies with:
 uv sync --extra dev --extra ui --extra investment-stand
 ```
 
+For the bundled local investment stand, the console can also be started with
+Docker without creating `.env` or `config/targets.yaml` first:
+
+```bash
+docker compose up --build -d
+```
+
+It creates the durable database and `investment-local` profile automatically.
+When the local stand is available, the first run bootstraps its standard test
+users through Keycloak. See [the local console quickstart](./docs/local-console-quickstart.md)
+for the expected stand endpoints and custom-target setup.
+
 ## CLI
 
 Check that the target and test identities are reachable:
