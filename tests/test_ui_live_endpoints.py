@@ -62,6 +62,7 @@ def test_recorded_live_control_and_endpoint_are_available():
 
     paths = {route.path for route in app.routes}
     assert "/api/live/recorded/start" in paths
+    assert "/api/live/reset" in paths
 
     html_path = (
         ROOT
@@ -75,6 +76,8 @@ def test_recorded_live_control_and_endpoint_are_available():
     html = html_path.read_text(encoding="utf-8")
     assert 'id="btnRecordedLive"' in html
     assert "startRecordedLive()" in html
+    assert 'id="btnReset"' in html
+    assert "resetState()" in html
 
 
 def test_live_start_rejects_unknown_attack():

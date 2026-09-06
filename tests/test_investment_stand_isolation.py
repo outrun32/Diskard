@@ -111,6 +111,28 @@ async def test_restore_repairs_inserts_updates_deletes_and_working_memory():
 
 
 @pytest.mark.asyncio
+async def test_reset_clears_memory_and_preserves_api_keys():
+    isolation = make_isolation()
+    isolation._db["dialog_sessions"].documents.append({"_id": 3})
+    isolation._db["episodic_memories"].documents.append({"_id": 4})
+    isolation._db["api_keys"].documents.append({"_id": 5, "key_hash": "warmed"})
+
+    result = await isolation.reset()
+
+    assert result["verified"] is True
+    assert result["api_keys_preserved"] is True
+    assert result["redis_keys"] == 1
+    assert result["cleared"] == {
+        "agent_policy_memories": 1,
+        "semantic_memories": 1,
+        "dialog_sessions": 1,
+        "episodic_memories": 1,
+    }
+    assert isolation._db["api_keys"].documents == [{"_id": 5, "key_hash": "warmed"}]
+    assert isolation._redis.values == {}
+
+
+@pytest.mark.asyncio
 async def test_nested_checkpoint_preserves_warmed_identity_until_outer_restore():
     isolation = make_isolation()
     outer = await isolation.prepare("campaign")

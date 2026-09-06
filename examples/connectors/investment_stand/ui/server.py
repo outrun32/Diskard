@@ -62,6 +62,7 @@ from examples.connectors.investment_stand.backend import (  # noqa: E402
     SemanticMemoryEvidence,
     StandClient,
 )
+from examples.connectors.investment_stand.connector import create_isolation  # noqa: E402
 from examples.connectors.investment_stand.identities import refresh_access_token  # noqa: E402
 from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
@@ -187,6 +188,7 @@ class Ctx:
     semantic: SemanticMemoryEvidence
     attacker: AttackerLLM | None
     identities: dict[str, Actor]
+    isolation: Any
 
 
 ctx = Ctx()
@@ -222,6 +224,7 @@ async def lifespan(app: FastAPI):
     ctx.semantic = SemanticMemoryEvidence()
     ctx.attacker = AttackerLLM() if os.environ.get("OPENAI_API_KEY") else None
     ctx.identities = {}
+    ctx.isolation = create_isolation({})
     yield
     await ctx.stand.aclose()
     await ctx.invest.aclose()
@@ -617,6 +620,19 @@ def _load_recorded_replay() -> dict[str, Any]:
     return replay
 
 
+async def _reset_state_body(job: Job) -> dict:
+    job.emit("resetting test state")
+    result = await ctx.isolation.reset()
+    if not result["verified"]:
+        raise RuntimeError("state reset verification failed")
+    job.emit("test state reset verified")
+    return {
+        "status": "clean",
+        "message": "Test state reset completed and verified.",
+        "details": result,
+    }
+
+
 async def _recorded_live_body(job: Job, *, max_trials: int = 6) -> dict:
     replay = _load_recorded_replay()
     last_outcome: dict[str, Any] | None = None
@@ -748,6 +764,15 @@ def get_recorded_presentation():
     except (OSError, json.JSONDecodeError) as exc:
         raise HTTPException(503, "recorded presentation is unavailable") from exc
     return JSONResponse(content=fixture)
+
+
+@app.post("/api/live/reset")
+async def start_state_reset():
+    job = _new_job("reset")
+    import asyncio
+
+    asyncio.create_task(_run_job(job, _reset_state_body))
+    return {"job_id": job.id}
 
 
 @app.post("/api/live/recorded/start")

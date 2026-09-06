@@ -195,6 +195,7 @@
   <button id="btnAudit" class="secondary" onclick="startAudit()">Полный цикл (все семьи)</button>
   <button id="btnRecorded" class="secondary" onclick="showRecorded()">Записанный результат</button>
   <button id="btnRecordedLive" class="secondary" onclick="startRecordedLive()">Live по записанному вводу</button>
+  <button id="btnReset" class="secondary" onclick="resetState()">Сбросить состояние</button>
   <span id="jobBadge"></span>
 </div>
 
@@ -268,7 +269,7 @@ function badge(status) {
 }
 
 function setRunControlsDisabled(disabled) {
-  ['btnStart', 'btnAudit', 'btnRecorded', 'btnRecordedLive'].forEach(id => {
+  ['btnStart', 'btnAudit', 'btnRecorded', 'btnRecordedLive', 'btnReset'].forEach(id => {
     document.getElementById(id).disabled = disabled;
   });
 }
@@ -354,6 +355,21 @@ async function startLive() {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({attack, driver}),
   });
+  if (!r.ok) {
+    document.getElementById('transcript').textContent = await friendlyError(r);
+    setRunControlsDisabled(false);
+    return;
+  }
+  const data = await r.json();
+  poll(data.job_id);
+}
+
+async function resetState() {
+  if (!window.confirm('Удалить тестовые записи памяти и текущие рабочие сессии?')) return;
+  resetRunUI();
+  document.getElementById('transcript').textContent = 'сброс состояния...';
+
+  const r = await fetch('/api/live/reset', {method: 'POST'});
   if (!r.ok) {
     document.getElementById('transcript').textContent = await friendlyError(r);
     setRunControlsDisabled(false);
