@@ -36,6 +36,7 @@ afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlo
 describe("operator journey using actual API shapes",()=>{
  it("shows real history and filters loaded records",async()=>{
  mount("/runs");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.queryByText(/Демонстрационный режим/)).not.toBeInTheDocument();expect(screen.queryByRole("group",{name:"Language"})).not.toBeInTheDocument();
+ expect(screen.getByRole("link",{name:"Diskard home"})).toHaveAttribute("href","/");
  expect(screen.getByRole("button",{name:"New run"})).toBeInTheDocument();
  await userEvent.type(screen.getByLabelText("Search runs"),"missing");expect(await screen.findByText("No matches")).toBeInTheDocument();
  });
