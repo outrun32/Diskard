@@ -17,11 +17,57 @@ yet.
 from __future__ import annotations
 
 from typing import Any, Literal
+from xml.etree import ElementTree
 
 from diskard.models import Finding, ReplayManifest
 
 Confidence = Literal["observed", "correlated", "proven"]
 FindingStatus = Literal["confirmed", "observed", "inconclusive"]
+
+
+def render_junit_xml(*, suite_name: str, runs: list[dict[str, Any]]) -> str:
+    """Render one JUnit testcase per repeat for CI-compatible reporting."""
+    failures = sum(run.get("check_status") == "fail" for run in runs)
+    errors = sum(run.get("check_status") == "error" for run in runs)
+    suite = ElementTree.Element(
+        "testsuite",
+        {
+            "name": suite_name,
+            "tests": str(len(runs)),
+            "failures": str(failures),
+            "errors": str(errors),
+            "skipped": "0",
+        },
+    )
+    for run in runs:
+        case = ElementTree.SubElement(
+            suite,
+            "testcase",
+            {
+                "classname": "diskard.scenario",
+                "name": str(run.get("run_id") or run.get("index") or "run"),
+            },
+        )
+        status = run.get("check_status")
+        message = str(run.get("message") or "")
+        if status == "fail":
+            ElementTree.SubElement(
+                case,
+                "failure",
+                {"type": "diskard.confirmed", "message": message},
+            )
+        elif status == "error":
+            ElementTree.SubElement(
+                case,
+                "error",
+                {"type": "diskard.infrastructure", "message": message},
+            )
+        elif run.get("finding") is not None:
+            ElementTree.SubElement(
+                case, "system-out"
+            ).text = "Diskard recorded a non-terminal observation."
+    ElementTree.indent(suite)
+    return ElementTree.tostring(suite, encoding="unicode", xml_declaration=True)
 
 
 def aggregate_run_metrics(runs: list[dict[str, Any]]) -> dict[str, int | float | None]:
@@ -58,12 +104,22 @@ def stage_verdicts_for(details: dict[str, Any]) -> dict[str, bool | None]:
     externalized = any(impact_values) if impact_values else None
     persisted = details.get("persisted")
     write_accepted = details.get("any_write", persisted)
+    retrieved = details.get("retrieved")
+    adopted = details.get("adopted")
+    if externalized is True:
+        # Visible downstream impact proves retrieval and adoption even when a
+        # black-box connector cannot observe those internal stages directly.
+        retrieved = True
+        adopted = True
     return {
-        "D0_delivered": True,
+        "D0_delivered": details.get("delivered"),
         "W1_write_accepted": write_accepted,
         "W2_persisted": persisted,
+        "E1_retrieved": retrieved,
+        "E2_adopted": adopted,
         "E3_externalized": externalized,
-        "P1_cross_identity": externalized,
+        "T1_tool_impact": details.get("tool_impact"),
+        "P1_cross_identity": details.get("cross_identity"),
     }
 
 
@@ -71,7 +127,15 @@ def has_security_observation(details: dict[str, Any]) -> bool:
     stages = stage_verdicts_for(details)
     return any(
         stages[name] is True
-        for name in ("W1_write_accepted", "W2_persisted", "E3_externalized", "P1_cross_identity")
+        for name in (
+            "W1_write_accepted",
+            "W2_persisted",
+            "E1_retrieved",
+            "E2_adopted",
+            "E3_externalized",
+            "T1_tool_impact",
+            "P1_cross_identity",
+        )
     )
 
 

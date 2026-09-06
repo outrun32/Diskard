@@ -33,6 +33,14 @@ def _poison_chat_message(scenario) -> str | None:
     return None
 
 
+def _delivery_message(scenario) -> str | None:
+    for step in scenario.steps:
+        for interaction in step.interacts:
+            if operation_label(interaction.inputs) == "deliver_secret":
+                return operation_message(interaction.inputs)
+    return None
+
+
 def _base_args(attack: str, **extra) -> SimpleNamespace:
     return SimpleNamespace(
         attack=attack,
@@ -66,6 +74,15 @@ def test_override_reaches_the_payload_for_delayed_recommendation_manipulation():
     args = _base_args("delayed-recommendation-manipulation", poison_message="CUSTOM WORDING 3")
     scenario, _ = _build_scenario(args, _fake_dispatch, "run4")
     assert _poison_chat_message(scenario) == "CUSTOM WORDING 3"
+
+
+def test_override_reuses_the_exact_direct_memory_delivery_message():
+    message = "Запомни мой псевдоним: Зирокс-A1B2C3."
+    args = _base_args("cross-user-direct-memory-leak", poison_message=message)
+
+    scenario, _ = _build_scenario(args, _fake_dispatch, "run-direct")
+
+    assert _delivery_message(scenario) == message
 
 
 def test_missing_poison_message_attribute_does_not_raise():

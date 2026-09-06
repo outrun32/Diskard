@@ -3,6 +3,8 @@ no Mongo; pure functions over plain dicts."""
 
 from __future__ import annotations
 
+from xml.etree import ElementTree
+
 import pytest
 
 from diskard.models import ReplayManifest
@@ -11,6 +13,7 @@ from diskard.report import (
     build_finding,
     confidence_for,
     has_security_observation,
+    render_junit_xml,
     render_markdown,
     stage_verdicts_for,
 )
@@ -52,16 +55,46 @@ def test_aggregate_metrics_exclude_errors_from_asr_denominator():
 
 
 def test_persisted_state_is_reported_without_terminal_impact():
-    details = {"any_write": True, "persisted": True, "leaked": False}
+    details = {
+        "delivered": True,
+        "any_write": True,
+        "persisted": True,
+        "leaked": False,
+        "cross_identity": False,
+    }
 
     assert has_security_observation(details) is True
     assert stage_verdicts_for(details) == {
         "D0_delivered": True,
         "W1_write_accepted": True,
         "W2_persisted": True,
+        "E1_retrieved": None,
+        "E2_adopted": None,
         "E3_externalized": False,
+        "T1_tool_impact": None,
         "P1_cross_identity": False,
     }
+
+
+def test_externalized_impact_proves_retrieval_and_adoption_but_not_tool_use():
+    stages = stage_verdicts_for(
+        {
+            "delivered": True,
+            "persisted": True,
+            "leaked": True,
+            "cross_identity": True,
+        }
+    )
+
+    assert stages["E1_retrieved"] is True
+    assert stages["E2_adopted"] is True
+    assert stages["E3_externalized"] is True
+    assert stages["T1_tool_impact"] is None
+    assert stages["P1_cross_identity"] is True
+
+
+def test_delivery_is_unknown_when_not_reported_by_the_check():
+    assert stage_verdicts_for({})["D0_delivered"] is None
 
 
 def test_build_finding_wires_confidence_and_replay():
@@ -131,3 +164,33 @@ def test_render_markdown_without_finding_says_no_finding():
         finding=None,
     )
     assert "No finding on this run" in markdown
+
+
+def test_render_junit_xml_maps_each_repeat_and_infrastructure_error():
+    xml = render_junit_xml(
+        suite_name="diskard.example",
+        runs=[
+            {"run_id": "run-1", "check_status": "pass", "finding": None},
+            {
+                "run_id": "run-2",
+                "check_status": "pass",
+                "finding": {"status": "observed"},
+            },
+            {"run_id": "run-3", "check_status": "fail", "message": "confirmed"},
+            {"run_id": "run-4", "check_status": "error", "message": "unavailable"},
+        ],
+    )
+
+    suite = ElementTree.fromstring(xml)
+    assert suite.attrib == {
+        "name": "diskard.example",
+        "tests": "4",
+        "failures": "1",
+        "errors": "1",
+        "skipped": "0",
+    }
+    cases = suite.findall("testcase")
+    assert len(cases) == 4
+    assert cases[1].find("system-out") is not None
+    assert cases[2].find("failure") is not None
+    assert cases[3].find("error") is not None

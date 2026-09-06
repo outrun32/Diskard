@@ -66,3 +66,19 @@ def test_llm_agent_requires_a_provider():
                 "attacker": {"driver": "llm-agent"},
             }
         )
+
+
+def test_black_box_mode_rejects_privileged_collectors():
+    with pytest.raises(ValidationError, match="black-box evidence mode"):
+        DiskardConfig.model_validate(
+            {
+                "version": 1,
+                "connector": {
+                    "name": "fake",
+                    "factory": "tests.fake:create_connector",
+                },
+                "actors": {"user": {"credential_env": "TOKEN"}},
+                "evidence": {"mode": "black-box", "collectors": ["state"]},
+                "attacks": {"include": ["memory-test"]},
+            }
+        )

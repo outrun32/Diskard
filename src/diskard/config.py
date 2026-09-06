@@ -64,6 +64,12 @@ class EvidenceConfig(BaseModel):
     mode: Literal["black-box", "grey-box", "white-box"] = "black-box"
     collectors: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_mode(self) -> EvidenceConfig:
+        if self.mode == "black-box" and self.collectors:
+            raise ValueError("black-box evidence mode cannot configure privileged collectors")
+        return self
+
 
 class AttackConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")

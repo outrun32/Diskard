@@ -70,6 +70,7 @@ def build_cross_user_direct_leak_scenario(
     victim_cus: str,
     dispatch: Dispatch,
     run_id: str | None = None,
+    delivery_message: str | None = None,
 ) -> Scenario:
     """`dispatch` must come from `make_dispatch(..., semantic=SemanticMemoryEvidence())`
     -- this scenario's `poisoner_semantic_snapshot` step needs that collector,
@@ -77,6 +78,7 @@ def build_cross_user_direct_leak_scenario(
     """
     run_id = run_id or uuid4().hex[:8]
     secret_code = new_secret_code()
+    delivery_text = delivery_message or DELIVER_SECRET_TEMPLATE.format(secret_code=secret_code)
     deliver_session = deliver_session_id(run_id)
     trigger_session = f"diskard-directleak-trigger-{run_id}"
 
@@ -89,7 +91,7 @@ def build_cross_user_direct_leak_scenario(
             label="deliver_secret",
             actor_id=poisoner_cus,
             session_id=deliver_session,
-            message=DELIVER_SECRET_TEMPLATE.format(secret_code=secret_code),
+            message=delivery_text,
         ),
         outputs=dispatch,
     )

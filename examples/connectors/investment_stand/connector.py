@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 import httpx
@@ -40,7 +41,7 @@ class InvestmentStandConnector:
                 "finalize",
             }
         ),
-        evidence_types=frozenset({"memory", "ground-truth"}),
+        evidence_types=frozenset({"policy-memory", "semantic-memory", "ground-truth"}),
         supports_identity_switch=True,
         supports_state_isolation=True,
     )
@@ -179,14 +180,22 @@ class KeycloakIdentityProvider:
 
 
 class MongoNamespaceIsolation:
-    """Remove records created after a checkpoint while preserving earlier state."""
+    """Restore all mutable state owned by the example target.
+
+    The connector runs against a dedicated local test environment, so a
+    checkpoint covers the target's complete Mongo collections and Redis
+    working-memory keyspace.  Keeping full documents (rather than only their
+    ids) makes updates and deletions reversible as well as inserts.
+    """
 
     _collections = (
         "agent_policy_memories",
         "semantic_memories",
         "dialog_sessions",
         "episodic_memories",
+        "api_keys",
     )
+    _redis_pattern = "working:*"
 
     def __init__(self, *, mongo_uri: str, redis_url: str) -> None:
         from pymongo import MongoClient
@@ -194,37 +203,61 @@ class MongoNamespaceIsolation:
 
         self._db = MongoClient(mongo_uri)["agent_memory"]
         self._redis = Redis.from_url(redis_url, decode_responses=False)
-        self._snapshots: dict[str, dict[str, set[Any]]] = {}
+        self._snapshots: dict[str, dict[str, Any]] = {}
+
+    def _mongo_snapshot(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            name: [deepcopy(doc) for doc in self._db[name].find({})] for name in self._collections
+        }
+
+    def _redis_snapshot(self) -> dict[bytes, tuple[bytes, int]]:
+        snapshot: dict[bytes, tuple[bytes, int]] = {}
+        for key in self._redis.scan_iter(match=self._redis_pattern):
+            payload = self._redis.dump(key)
+            if payload is not None:
+                snapshot[key] = (payload, self._redis.pttl(key))
+        return snapshot
 
     async def prepare(self, namespace: str) -> IsolationCheckpoint:
-        snapshot = {
-            name: {doc["_id"] for doc in self._db[name].find({}, {"_id": 1})}
-            for name in self._collections
+        mongo = self._mongo_snapshot()
+        redis = self._redis_snapshot()
+        self._snapshots[namespace] = {
+            "mongo": mongo,
+            "redis": redis,
         }
-        self._snapshots[namespace] = snapshot
         return IsolationCheckpoint(
             id=namespace,
-            data={"counts": {name: len(ids) for name, ids in snapshot.items()}},
+            data={
+                "mongo_counts": {name: len(docs) for name, docs in mongo.items()},
+                "redis_keys": len(redis),
+            },
         )
 
     async def restore(self, checkpoint: IsolationCheckpoint) -> None:
         snapshot = self._snapshots[checkpoint.id]
-        for name, original_ids in snapshot.items():
-            if original_ids:
-                self._db[name].delete_many({"_id": {"$nin": list(original_ids)}})
-            else:
-                self._db[name].delete_many({})
-        keys = list(self._redis.scan_iter(match=f"working:*:*{checkpoint.id}*"))
-        if keys:
-            self._redis.delete(*keys)
+        for name, documents in snapshot["mongo"].items():
+            collection = self._db[name]
+            collection.delete_many({})
+            if documents:
+                collection.insert_many(deepcopy(documents))
+
+        current_keys = list(self._redis.scan_iter(match=self._redis_pattern))
+        if current_keys:
+            self._redis.delete(*current_keys)
+        for key, (payload, ttl_ms) in snapshot["redis"].items():
+            # Redis RESTORE uses ttl=0 for a persistent key. A key that was
+            # close to expiry may have elapsed while the scenario ran; keep it
+            # briefly rather than turning it into a persistent record.
+            restore_ttl = 0 if ttl_ms < 0 else max(ttl_ms, 1)
+            self._redis.restore(key, restore_ttl, payload, replace=True)
 
     async def verify(self, checkpoint: IsolationCheckpoint) -> bool:
         snapshot = self._snapshots.pop(checkpoint.id)
-        mongo_clean = all(
-            {doc["_id"] for doc in self._db[name].find({}, {"_id": 1})} == original_ids
-            for name, original_ids in snapshot.items()
-        )
-        redis_clean = not any(self._redis.scan_iter(match=f"working:*:*{checkpoint.id}*"))
+        mongo_clean = self._mongo_snapshot() == snapshot["mongo"]
+        current_redis = self._redis_snapshot()
+        redis_clean = {key: payload for key, (payload, _ttl) in current_redis.items()} == {
+            key: payload for key, (payload, _ttl) in snapshot["redis"].items()
+        }
         return mongo_clean and redis_clean
 
 

@@ -48,6 +48,7 @@ evidence:
   collectors:
     - policy-memory
     - semantic-memory
+    - ground-truth
 
 attacks:
   include:

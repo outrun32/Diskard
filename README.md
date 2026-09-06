@@ -48,13 +48,15 @@ The current development build includes four memory-focused scenarios:
 - compaction-time policy poisoning;
 - delayed recommendation manipulation.
 
-Diskard can drive chat and finalization under separate identities, inspect memory changes, compare two authorization modes, emit JSON findings, render Markdown reports, and replay a previous run as a fresh trial. An experimental LLM attacker can adapt payload wording after each failed persistence attempt.
+Diskard can drive lifecycle operations under separate identities, inspect memory changes, emit JSON and JUnit results, render Markdown reports, and replay the exact selected payload as a fresh trial. An experimental LLM attacker can adapt payload wording after each failed persistence attempt.
 
-The first proof-of-concept connector uses target-specific grey-box sources. That integration is moving to `examples/connectors/`; the package itself is being reduced to generic connector, lifecycle, evidence, and isolation contracts. Black-box fallback and complete state restoration are still under development.
+The built-in scenarios currently require explicitly declared grey-box collectors. A connector is rejected before execution when a required collector is absent or unsupported. A generic black-box attack family is not implemented yet.
+
+Exact restoration remains a connector responsibility because storage differs between targets. The reference connector snapshots complete mutable documents, working-memory values, and setup-time identity records; nested checkpoints isolate attempts and repeats, while an outer checkpoint restores the pre-campaign state.
 
 ## Connector model
 
-A connector translates Diskard operations into calls understood by one agent system. It owns protocol details such as authentication headers, session identifiers, finalization endpoints, and optional evidence sources. Attack families must not import a connector implementation.
+A connector translates Diskard operations into calls understood by one agent system. It owns protocol details such as authentication headers, session identifiers, finalization endpoints, and optional evidence sources. Attack families must not import a connector implementation. They are registered through the attack registry and declare their required evidence collectors, so adding a definition does not require editing CLI dispatch.
 
 Each connector will ship with its own example configuration:
 
@@ -65,7 +67,7 @@ examples/connectors/<name>/
 └── README.md
 ```
 
-Diskard core will test every connector against the same contract suite: health check, identity isolation, lifecycle ordering, timeout mapping, cleanup idempotency, and black-box execution without optional collectors.
+The public connector contracts cover health checks, identity resolution, supported operations, optional evidence, and isolation checkpoints. Target-specific integrations remain responsible for proving that their own cleanup boundary is complete.
 
 ## Installation
 
@@ -115,7 +117,7 @@ uv run diskard scan path/to/diskard.yaml \
 Provider secrets are read from the environment variable names stored in the
 configuration file. They are not included in model prompts or run manifests.
 
-Every scan records a run manifest. Confirmed findings can be rendered and a run can be repeated:
+Every scan records `result.json` and `junit.xml` in its run directory. Confirmed findings can be rendered and a run can be repeated:
 
 ```bash
 uv run diskard report RUN_ID
