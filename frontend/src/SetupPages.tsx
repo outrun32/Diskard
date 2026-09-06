@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { listProfiles, getProfile, saveProfile, validateTarget } from "./api";
+import { listProfiles, getProfile, saveProfile, validateTarget, deleteProfile } from "./api";
 import type { ProfileInput, Profile, ReadinessCheck } from "./types";
 import { useLanguage } from "./i18n";
 export function Failure({error,retry}:{error:unknown;retry?:()=>void}){const {language}=useLanguage(),ru=language==="ru";return <div className="state-panel state-error" role="alert"><div><h2>{ru?"Не удалось получить данные":"Could not load data"}</h2><p>{error instanceof Error?error.message:ru?"Неизвестная ошибка":"Unknown error"}</p>{retry&&<button className="button button-secondary" onClick={retry}>{ru?"Повторить":"Retry"}</button>}</div></div>;}
@@ -9,15 +9,18 @@ function Header({title,children}:{title:string;children?:React.ReactNode}){retur
 export function Checks({checks}:{checks:ReadinessCheck[]}){const {language}=useLanguage();const labels:Record<string,string>=language==="ru"?{ready:"Готово",blocked:"Заблокировано",optional:"Необязательно",unknown:"Не проверено",missing:"Не настроено"}:{ready:"Ready",blocked:"Blocked",optional:"Optional",unknown:"Not checked",missing:"Not configured"};return <div className="settings-checks">{checks.map(c=><div className="settings-check" key={c.id}><div><strong>{c.label||c.id}</strong><span>{c.reason||c.detail}</span></div><span>{labels[c.status]??c.status}</span></div>)}</div>;}
 function ProfileCard({profile}:{profile:Profile}){
  const {language}=useLanguage(),ru=language==="ru";
+ const cache=useQueryClient();
  const validate=useMutation({mutationFn:()=>validateTarget(profile.id)});
- return <section className="target-profile-card"><h2>{profile.name}</h2><p>{profile.adapter} · {ru?"версия":"version"} {profile.version}</p><code>{profile.config.base_url}</code><dl>{Object.entries(profile.actor_status??{}).map(([role,status])=><div key={role}><dt>{role} · {status.cus}</dt><dd>{Object.values(status.credential_refs).join(", ")||(ru?"Нет ссылок":"No references")} — {status.configured?(ru?"настроено":"configured"):(ru?"не настроено":"not configured")}</dd></div>)}</dl>
- <div className="target-card-actions"><Link className="button button-secondary" to={"/targets/"+encodeURIComponent(profile.id)+"/edit"}>{ru?"Изменить":"Edit"}</Link><button className="button button-secondary" disabled={validate.isPending} onClick={()=>validate.mutate()}>{validate.isPending?(ru?"Проверяем…":"Checking…"):(ru?"Проверить подключение":"Check connection")}</button><Link className="button button-primary" to={"/runs/new?target="+encodeURIComponent(profile.id)}>{ru?"Новый запуск":"New run"}</Link></div>
- {validate.isError&&<Failure error={validate.error}/>} {validate.data&&<div role="status"><Checks checks={validate.data.checks}/></div>}</section>;
+ const remove=useMutation({mutationFn:()=>deleteProfile(profile.id),onSuccess:()=>{void cache.invalidateQueries({queryKey:["profiles"]});void cache.invalidateQueries({queryKey:["setup"]});}});
+ const confirmDelete=()=>{if(window.confirm(ru?"Удалить это подключение?":"Delete this connection?"))remove.mutate();};
+ return <section className="target-profile-card"><h2>{profile.name}</h2><p>{profile.adapter}</p><code>{profile.config.base_url}</code><dl>{Object.entries(profile.actor_status??{}).map(([role,status])=><div key={role}><dt>{role} · {status.cus}</dt><dd>{Object.values(status.credential_refs).join(", ")||(ru?"Нет ссылок":"No references")} — {status.configured?(ru?"настроено":"configured"):(ru?"не настроено":"not configured")}</dd></div>)}</dl>
+ <div className="target-card-actions"><Link className="button button-secondary" to={"/targets/"+encodeURIComponent(profile.id)+"/edit"}>{ru?"Изменить":"Edit"}</Link><button className="button button-secondary" disabled={validate.isPending} onClick={()=>validate.mutate()}>{validate.isPending?(ru?"Проверяем…":"Checking…"):(ru?"Проверить подключение":"Check connection")}</button><Link className="button button-primary" to={"/runs/new?target="+encodeURIComponent(profile.id)}>{ru?"Новый запуск":"New run"}</Link><button type="button" className="button button-danger" disabled={remove.isPending} onClick={confirmDelete}>{remove.isPending?(ru?"Удаляем…":"Deleting…"):(ru?"Удалить":"Delete")}</button></div>
+ {validate.isError&&<Failure error={validate.error}/>} {remove.isError&&<Failure error={remove.error}/>} {validate.data&&<div role="status"><Checks checks={validate.data.checks}/></div>}</section>;
 }
 export function TargetsPage(){
  const {language,t}=useLanguage(),ru=language==="ru";
  const q=useQuery({queryKey:["profiles"],queryFn:({signal})=>listProfiles(signal)});
- return <div><Header title={t("targets")}><Link className="button button-primary" to="/targets/new">{t("addTargetUrl")}</Link></Header><p>{ru?"Сначала добавьте URL. Credentials и параметры адаптера находятся в расширенных настройках.":"Add a URL now. Credentials and adapter-specific fields stay in Advanced settings."}</p>
+ return <div><Header title={t("targets")}><Link className="button button-primary" to="/targets/new">{t("addTargetUrl")}</Link></Header><p>{ru?"Управляйте приложениями и сервисами, которые Diskard может проверять. Для каждого подключения сохраняются URL и настройки адаптера.":"Manage the applications and services Diskard can test. Each connection stores its URL and adapter settings."}</p>
  {q.isPending?<p role="status">{t("loadingTargets")}</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:q.data.length?<div className="profile-list">{q.data.map(p=><ProfileCard key={p.id} profile={p}/>)}</div>:<div className="state-panel"><h2>{ru?"Цели не подключены":"No targets connected"}</h2><p>{ru?"Добавьте URL цели, чтобы настроить атаку.":"Add a target URL to configure an attack."}</p></div>}</div>;
 }
 const blank:ProfileInput={schema_version:1,id:"",name:"",adapter:"investment-stand",base_url:"",actors:{},lifecycle:{},adapter_options:{}};

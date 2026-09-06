@@ -9,7 +9,7 @@ import { useLanguage } from "./i18n";
 type Overview = {
   counts: {runs:number;active:number;findings:number;errors:number;unknown:number};
   targets:number;synthetic_runs:number;active:RunSummary[];recent:RunSummary[];
-  checks?:{id:string;profile_id:string;attacks:string[]}[];
+  checks?:{id:string;profile_id:string;profile_version?:number;attacks:string[];created_at?:string}[];
 };
 async function overview(signal:AbortSignal):Promise<Overview> {
   if (DEMO_MODE) {
@@ -27,6 +27,22 @@ function ResultRows({runs}:{runs:RunSummary[]}) {
     <div><span>{statuses[run.status]}</span><small>{run.outcome==="vulnerable"?"Confirmed finding":run.outcome==="observed"?"Evidence observed":run.outcome==="clean"?"No finding":"Unknown result"}</small></div><ArrowRight size={16}/>
   </Link>)}</div>;
 }
+function RecentAttackRows({checks,runs}:{checks:NonNullable<Overview["checks"]>;runs:RunSummary[]}) {
+  const items=[
+    ...checks.map(check=>({kind:"check" as const,at:check.created_at??"",check})),
+    ...runs.filter(run=>!run.checkId).map(run=>({kind:"run" as const,at:run.startedAt??"",run})),
+  ].sort((a,b)=>Date.parse(b.at)-Date.parse(a.at)).slice(0,8);
+  return <div className="overview-results">{items.map(item=>item.kind==="check"?
+    <Link key={`check-${item.check.id}`} className="overview-run" to={`/checks/${item.check.id}`}>
+      <div><strong>{item.check.profile_id}</strong><span>{item.check.attacks.length} attacks - {item.check.id.slice(0,8)}</span></div>
+      <span>{item.check.created_at?new Date(item.check.created_at).toLocaleString("en-GB"):"Full attack"}</span><ArrowRight size={16}/>
+    </Link>:
+    <Link key={`run-${item.run.id}`} className="overview-run" to={`/runs/${encodeURIComponent(item.run.id)}/trace`}>
+      <div><strong>{item.run.title}</strong><span>{item.run.target} - {item.run.shortId}</span></div>
+      <div><span>{statuses[item.run.status]}</span><small>{item.run.outcome==="vulnerable"?"Confirmed finding":item.run.outcome==="observed"?"Evidence observed":item.run.outcome==="clean"?"No finding":"Unknown result"}</small></div><ArrowRight size={16}/>
+    </Link>
+  )}</div>;
+}
 export default function OverviewPage() {
   const {t}=useLanguage();
   const q=useQuery({queryKey:["overview"],queryFn:({signal})=>overview(signal),refetchInterval:5000,retry:1});
@@ -34,11 +50,9 @@ export default function OverviewPage() {
     <div className="page-header"><div><h1>{t("overview")}</h1><p>Current activity and results that need attention.</p></div><Link className="button button-primary" to="/runs/new">{t("newRun")} <ArrowRight size={16}/></Link></div>
     {q.isPending?<p role="status">Loading overview…</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:<>
       <dl className="overview-totals">{[["Total runs",q.data.counts.runs],["Confirmed findings",q.data.counts.findings],["Execution errors",q.data.counts.errors],["Unknown results",q.data.counts.unknown]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <p className="muted-copy">All time. Counts represent runs, not unique vulnerabilities.{q.data.synthetic_runs>0&&` Synthetic fixtures (${q.data.synthetic_runs}) are excluded.`}</p>
       {q.data.counts.active>0&&<section className="overview-section"><h2><Activity size={18}/> Running · {q.data.counts.active}</h2><ResultRows runs={q.data.active}/></section>}
       {q.data.counts.runs===0&&<section className="overview-start"><h2>Start with a target</h2><p>Connect an application, run an attack and inspect responses and stored memory in its trace.</p><Link to={q.data.targets?"/runs/new":"/targets/new"} className="button button-secondary">{q.data.targets?"New run":"Add target"}</Link></section>}
-      {!!q.data.checks?.length&&<section className="overview-section"><div className="overview-section-heading"><h2>Recent full attacks</h2><Link className="text-link" to="/runs">All runs</Link></div><div className="overview-results">{q.data.checks.map(check=><Link className="overview-run" key={check.id} to={`/checks/${check.id}`}><div><strong>{check.profile_id}</strong><span>{check.attacks.length} attacks · {check.id.slice(0,8)}</span></div><span>Open full attack</span><ArrowRight size={16}/></Link>)}</div></section>}
-      <section className="overview-section"><div className="overview-section-heading"><h2>Recent results</h2><Link className="text-link" to="/runs">All runs <ArrowRight size={15}/></Link></div>{q.data.recent.length?<ResultRows runs={q.data.recent}/>:<p>No runs yet.</p>}</section>
+      <section className="overview-section">{q.data.checks?.length||q.data.recent.length?<RecentAttackRows checks={q.data.checks??[]} runs={q.data.recent}/>:<p>No attacks yet.</p>}</section>
     </>}
   </div>;
 }

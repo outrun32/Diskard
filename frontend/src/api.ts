@@ -57,6 +57,14 @@ export async function cancelRun(id:string):Promise<void>{
  if(DEMO_MODE){const r=(await demoRuns()).find(r=>r.id===id);if(!r)throw new ApiError("Запуск не найден",404);r.status="cancelled";r.mode="recorded";r.finishedAt=new Date().toISOString();await persistDemo();return;}
  await request(url(id)+"/cancel",{method:"POST"});
 }
+export async function deleteRun(id:string):Promise<void>{
+ if(DEMO_MODE){const runs=await demoRuns(),index=runs.findIndex(r=>r.id===id);if(index<0)throw new ApiError("Run not found",404);if(["queued","running","cancelling"].includes(runs[index].status))throw new ApiError("Cannot delete an active run",409);runs.splice(index,1);await persistDemo();return;}
+ await request(url(id),{method:"DELETE"});
+}
+export async function deleteCheck(id:string):Promise<void>{
+ if(DEMO_MODE)return;
+ await request("/api/v1/checks/"+encodeURIComponent(id),{method:"DELETE"});
+}
 const demoProfile:Profile={id:"investment-local",name:"Демонстрационная цель",adapter:"investment-stand",version:1,config:{schema_version:1,id:"investment-local",name:"Демонстрационная цель",adapter:"investment-stand",base_url:"http://localhost:8600",actors:{attacker:{cus:"attacker",credential_env:"DISKARD_ATTACKER_TARGET_KEY"}},lifecycle:{},adapter_options:{}},actor_status:{}};
 let profiles:Profile[]|undefined;
 function demoProfiles(){if(!profiles){try{profiles=JSON.parse(sessionStorage.getItem("diskard-demo-profiles")??"null")??[demoProfile];}catch{profiles=[demoProfile];}}return profiles!;}
@@ -73,6 +81,10 @@ export async function saveProfile(input:ProfileInput,editing=false):Promise<Prof
  const p:Profile={id:input.id,name:input.name,adapter:input.adapter,version:i>=0?list[i].version+1:1,config:input,actor_status:{}};
  if(i<0)list.push(p);else list[i]=p;sessionStorage.setItem("diskard-demo-profiles",JSON.stringify(list));return p;}
  return await request("/api/v1/targets"+(editing?"/"+encodeURIComponent(input.id):""),{method:editing?"PATCH":"POST",body:JSON.stringify(input)}) as Profile;
+}
+export async function deleteProfile(id:string):Promise<void>{
+ if(DEMO_MODE){const list=demoProfiles(),index=list.findIndex(profile=>profile.id===id);if(index<0)throw new ApiError("Target not found",404);list.splice(index,1);sessionStorage.setItem("diskard-demo-profiles",JSON.stringify(list));return;}
+ await request("/api/v1/targets/"+encodeURIComponent(id),{method:"DELETE"});
 }
 export async function validateTarget(id:string):Promise<Readiness>{
  if(DEMO_MODE)return{ready:false,checks:[{id:"demo",label:"Демонстрационная цель",status:"unknown",reason:"Проверка сети и credentials в demo не выполняется."}]};

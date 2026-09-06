@@ -29,7 +29,7 @@ def render_markdown(run: dict[str, Any]) -> str:
         "",
         f"- mode: {run.get('mode')}",
         f"- origin: {run.get('origin')}",
-        f"- target profile: {run.get('target_profile_id')} v{run.get('target_profile_version')}",
+        f"- target profile: {run.get('target_profile_id')}",
         f"- execution status: **{run.get('status')}**",
         f"- engine verdict: **{_label(run)}**",
         f"- engine version: {run.get('engine_version')}",
@@ -94,8 +94,7 @@ pre{{white-space:pre-wrap;word-break:break-word;margin:0}} .muted{{color:#57606a
 <div class="meta">
 <div>Execution status</div><div class="badge">{escape(str(run.get("status")))}</div>
 <div>Engine verdict</div><div class="badge">{escape(_label(run))}</div>
-<div>Target profile</div><div>{escape(str(run.get("target_profile_id")))}
-v{escape(str(run.get("target_profile_version")))}</div>
+<div>Target profile</div><div>{escape(str(run.get("target_profile_id")))}</div>
 <div>Engine/scenario</div><div>{escape(str(run.get("engine_version")))} /
 {escape(str(run.get("scenario_version")))}</div>
 <div>Source/build SHA</div><div>{escape(str(run.get("source_sha") or "unknown"))}</div>

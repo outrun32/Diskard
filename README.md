@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/public/diskard-turtle-logo.png" alt="Diskard turtle logo" width="220">
+</p>
+
 # Diskard
 
 Diskard is an open-source security test runner for AI agents that keep memory, call tools, and act across multiple sessions.

@@ -29,6 +29,7 @@ try:
         and_,
         create_engine,
         desc,
+        delete,
         func,
         insert,
         inspect,
@@ -298,6 +299,29 @@ class RunStore:
                 )
             ]
 
+    def delete_profile(self, profile_id: str) -> bool:
+        """Delete a target profile while retaining immutable historical runs."""
+        with self.engine.begin() as connection:
+            current = connection.execute(
+                select(target_profiles.c.id).where(target_profiles.c.id == profile_id)
+            ).scalar_one_or_none()
+            if current is None:
+                return False
+            active = connection.execute(
+                select(runs.c.id)
+                .where(
+                    runs.c.target_profile_id == profile_id,
+                    runs.c.status.in_(["queued", "running", "cancelling"]),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if active is not None:
+                raise ValueError("cannot delete a target with an active run")
+            result = connection.execute(
+                delete(target_profiles).where(target_profiles.c.id == profile_id)
+            )
+            return bool(result.rowcount)
+
     def upsert_profile(self, profile: TargetProfile, *, explicit: bool = False) -> dict[str, Any]:
         config = redact(profile.model_dump(mode="json"))
         credential_refs = {
@@ -503,6 +527,32 @@ class RunStore:
                 .offset(offset)
             )
             items = [_row(row) for row in connection.execute(query)]
+            run_ids = [run_id for item in items for run_id in (item.get("run_ids") or [])]
+            states = {
+                row._mapping["id"]: row._mapping["status"]
+                for row in connection.execute(
+                    select(runs.c.id, runs.c.status).where(runs.c.id.in_(run_ids))
+                )
+            } if run_ids else {}
+            for item in items:
+                item_states = [states.get(run_id, "unknown") for run_id in (item.get("run_ids") or [])]
+                active_id = next(
+                    (run_id for run_id in (item.get("run_ids") or []) if states.get(run_id) in {"queued", "running", "cancelling"}),
+                    None,
+                )
+                if active_id:
+                    item["status"] = states[active_id]
+                elif any(status == "failed" for status in item_states):
+                    item["status"] = "failed"
+                elif any(status == "interrupted" for status in item_states):
+                    item["status"] = "interrupted"
+                elif any(status == "cancelled" for status in item_states):
+                    item["status"] = "cancelled"
+                elif item_states and all(status == "completed" for status in item_states):
+                    item["status"] = "completed"
+                else:
+                    item["status"] = "unknown"
+                item["active_run_id"] = active_id
             total = connection.execute(select(func.count()).select_from(checks)).scalar_one()
         return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -571,6 +621,82 @@ class RunStore:
             if include_events:
                 result["events"] = self._events(connection, run_id)
             return result
+
+    def _delete_run_records(self, connection: Connection, run_id: str) -> None:
+        event_ids = [
+            row[0]
+            for row in connection.execute(
+                select(events.c.id).where(events.c.run_id == run_id)
+            )
+        ]
+        if event_ids:
+            connection.execute(
+                delete(event_artifacts).where(event_artifacts.c.event_id.in_(event_ids))
+            )
+        connection.execute(delete(events).where(events.c.run_id == run_id))
+        connection.execute(delete(run_units).where(run_units.c.run_id == run_id))
+        connection.execute(delete(findings).where(findings.c.run_id == run_id))
+        connection.execute(delete(replay_specs).where(replay_specs.c.run_id == run_id))
+        connection.execute(delete(runs).where(runs.c.id == run_id))
+
+    def delete_run(self, run_id: str) -> bool:
+        """Delete one terminal standalone run and its durable trace records."""
+        with self.engine.begin() as connection:
+            current = _row(
+                connection.execute(
+                    select(runs).where(runs.c.id == run_id).with_for_update()
+                ).first()
+            )
+            if current is None:
+                return False
+            if current["status"] in {"queued", "running", "cancelling"}:
+                raise ValueError("cannot delete an active run; cancel it first")
+            child = connection.execute(
+                select(runs.c.id).where(runs.c.parent_run_id == run_id).limit(1)
+            ).scalar_one_or_none()
+            if child is not None:
+                raise ValueError("cannot delete a run that has a rerun")
+            for check_row in connection.execute(select(checks.c.run_ids)):
+                if run_id in (check_row[0] or []):
+                    raise ValueError("cannot delete a run that belongs to a full attack")
+            self._delete_run_records(connection, run_id)
+            return True
+
+    def delete_check(self, check_id: str) -> bool:
+        """Delete a full attack and all of its child runs."""
+        with self.engine.begin() as connection:
+            row = _row(
+                connection.execute(select(checks).where(checks.c.id == check_id).with_for_update()).first()
+            )
+            if row is None:
+                return False
+            run_ids = [str(item) for item in (row.get("run_ids") or [])]
+            all_run_ids = list(dict.fromkeys(run_ids))
+            pending = list(all_run_ids)
+            while pending:
+                children = [
+                    child_id
+                    for child_id in connection.execute(
+                        select(runs.c.id).where(runs.c.parent_run_id.in_(pending))
+                    ).scalars()
+                ]
+                pending = [child_id for child_id in children if child_id not in all_run_ids]
+                all_run_ids.extend(pending)
+            if all_run_ids:
+                active = connection.execute(
+                    select(runs.c.id)
+                    .where(
+                        runs.c.id.in_(all_run_ids),
+                        runs.c.status.in_(["queued", "running", "cancelling"]),
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+                if active is not None:
+                    raise ValueError("cannot delete a full attack with active runs; cancel it first")
+                for child_id in all_run_ids:
+                    self._delete_run_records(connection, child_id)
+            result = connection.execute(delete(checks).where(checks.c.id == check_id))
+            return bool(result.rowcount)
 
     def overview(self) -> dict[str, Any]:
         """Aggregate the whole history, excluding explicit synthetic executions."""

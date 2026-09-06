@@ -51,7 +51,9 @@ export function mapEvent(value: unknown): TraceEvent {
   if (!Object.keys(memory).length && d.phase === "semantic_snapshot" && "facts" in output) {
     memory = {tier: "semantic", change: "snapshot", owner: r.actor_id, after: output.facts};
   }
-  const kind: TraceEvent["kind"] = type.includes("error") ? "error" : Object.keys(memory).length ? "memory" : type.includes("evidence") || type === "run.result" ? "evidence" : type.includes("operation") || type.startsWith("run.") ? "operation" : "message";
+  const conversational = (type.includes("operation") || type === "attacker.attempt") && Boolean(d.message || d.reply || output.reply || output.response);
+  const operational = type.includes("operation") || type.startsWith("run.") || type === "executor.claimed" || type === "replay.resolved" || type.startsWith("cleanup.");
+  const kind: TraceEvent["kind"] = type.includes("error") ? "error" : Object.keys(memory).length ? "memory" : type.includes("evidence") || type === "run.result" ? "evidence" : conversational ? "message" : operational ? "operation" : "message";
   const status = type.endsWith(".started") ? "started" : type.endsWith(".completed") ? "completed" : type.endsWith(".error") ? "failed" : undefined;
   const rawChange = String(memory.change ?? memory.action ?? "snapshot");
   const change = ["added","changed","removed","snapshot","unavailable"].includes(rawChange) ? rawChange as NonNullable<TraceEvent["memory"]>["change"] : "snapshot";

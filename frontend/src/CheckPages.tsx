@@ -45,7 +45,7 @@ export function CheckDetailPage() {
   if(q.isPending)return <p>{t("checksLoading")}</p>;
   if(q.isError)return <Failure error={q.error} retry={()=>q.refetch()}/>;
   const runs=q.data.runs.map(mapRun),active=runs.filter(r=>activeStatus(r.status)).length,done=runs.length-active;
-  return <div><div className="page-header"><div><h1>{t("fullAttack")}</h1><p>{q.data.profile_id} · {t("profile")} v{q.data.profile_version} · {done} / {runs.length} {t("completed")}</p></div><div className="target-card-actions"><a className="button button-primary" href={`/api/v1/checks/${id}/report`}>{t("combinedReport")}</a>{active>0&&<button className="button button-danger" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t("stop")}</button>}</div></div>
+  return <div><div className="page-header"><div><h1>{t("fullAttack")}</h1><p>{q.data.profile_id} · {done} / {runs.length} {t("completed")}</p></div><div className="target-card-actions"><a className="button button-primary" href={`/api/v1/checks/${id}/report`}>{t("combinedReport")}</a>{active>0&&<button className="button button-danger" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t("stop")}</button>}</div></div>
     <progress className="check-progress" aria-label="Completed attacks" value={done} max={runs.length||1}/>
     <p>{active?"Attacks run sequentially. You can close this page and return later.":"Full attack finished. Review each trace, including execution failures."}</p>
     {cancel.isError&&<Failure error={cancel.error}/>}

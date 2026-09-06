@@ -858,6 +858,14 @@ def get_finding(name: str):
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 
+@app.get("/diskard-turtle-logo.png")
+def diskard_turtle_logo():
+    logo = FRONTEND_DIST / "diskard-turtle-logo.png"
+    if not logo.is_file():
+        raise HTTPException(404, "logo asset is not built")
+    return FileResponse(logo, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
 @app.api_route("/", methods=["GET", "HEAD"])
 def index():
     if (FRONTEND_DIST / "index.html").is_file():
@@ -962,6 +970,18 @@ def get_check(check_id: str):
     if result is None:
         raise HTTPException(404, "Unknown check")
     return result
+
+
+@app.delete("/api/v1/checks/{check_id}", status_code=204)
+def delete_check(request: Request, check_id: str):
+    _guard_state_change(request)
+    try:
+        deleted = _console_runtime().require_store().delete_check(check_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "unknown check")
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/checks")
@@ -1101,6 +1121,18 @@ def update_target(request: Request, target_id: str, payload: TargetProfileReques
     return runtime.public_profile(row)
 
 
+@app.delete("/api/v1/targets/{target_id}", status_code=204)
+def delete_target(request: Request, target_id: str):
+    _guard_state_change(request)
+    try:
+        deleted = _console_runtime().require_store().delete_profile(target_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "unknown target profile")
+    return Response(status_code=204)
+
+
 @app.post("/api/v1/targets/{target_id}/validate")
 async def validate_target(request: Request, target_id: str):
     _guard_state_change(request)
@@ -1175,6 +1207,18 @@ def get_durable_run(run_id: str):
     if run is None:
         raise HTTPException(404, "unknown run")
     return run
+
+
+@app.delete("/api/v1/runs/{run_id}", status_code=204)
+def delete_durable_run(request: Request, run_id: str):
+    _guard_state_change(request)
+    try:
+        deleted = _console_runtime().require_store().delete_run(run_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "unknown run")
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/runs/{run_id}/events")
