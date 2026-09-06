@@ -138,6 +138,7 @@ The recorded UI data lives at
 `examples/connectors/investment_stand/ui/fixtures/confirmed-lifecycle.json`.
 It contains only the versioned `presentation` contract. The live console exposes
 it through `GET /api/live/recorded` and the **Записанный результат** control.
+Use **Live по записанному вводу** to run the saved input in up to six clean trials.
 
 Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
 

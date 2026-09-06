@@ -194,6 +194,7 @@
   <button id="btnStart" onclick="startLive()">Start</button>
   <button id="btnAudit" class="secondary" onclick="startAudit()">Полный цикл (все семьи)</button>
   <button id="btnRecorded" class="secondary" onclick="showRecorded()">Записанный результат</button>
+  <button id="btnRecordedLive" class="secondary" onclick="startRecordedLive()">Live по записанному вводу</button>
   <span id="jobBadge"></span>
 </div>
 
@@ -266,9 +267,14 @@ function badge(status) {
   return `<span class="status-badge ${cls}">${status}</span>`;
 }
 
+function setRunControlsDisabled(disabled) {
+  ['btnStart', 'btnAudit', 'btnRecorded', 'btnRecordedLive'].forEach(id => {
+    document.getElementById(id).disabled = disabled;
+  });
+}
+
 function resetRunUI() {
-  document.getElementById('btnStart').disabled = true;
-  document.getElementById('btnAudit').disabled = true;
+  setRunControlsDisabled(true);
   document.getElementById('transcript').textContent = 'запуск...';
   document.getElementById('memoryEvents').textContent = '(ожидание первой записи в память...)';
   document.getElementById('verdict').textContent = '';
@@ -291,8 +297,7 @@ async function showRecorded() {
   resetRunUI();
   document.getElementById('jobBadge').innerHTML = badge('done');
   const r = await fetch('/api/live/recorded');
-  document.getElementById('btnStart').disabled = false;
-  document.getElementById('btnAudit').disabled = false;
+  setRunControlsDisabled(false);
   if (!r.ok) {
     document.getElementById('transcript').textContent = await friendlyError(r);
     return;
@@ -351,8 +356,21 @@ async function startLive() {
   });
   if (!r.ok) {
     document.getElementById('transcript').textContent = await friendlyError(r);
-    document.getElementById('btnStart').disabled = false;
-    document.getElementById('btnAudit').disabled = false;
+    setRunControlsDisabled(false);
+    return;
+  }
+  const data = await r.json();
+  poll(data.job_id);
+}
+
+async function startRecordedLive() {
+  resetRunUI();
+  document.getElementById('transcript').textContent = 'запуск сохранённого варианта...';
+
+  const r = await fetch('/api/live/recorded/start', {method: 'POST'});
+  if (!r.ok) {
+    document.getElementById('transcript').textContent = await friendlyError(r);
+    setRunControlsDisabled(false);
     return;
   }
   const data = await r.json();
@@ -366,8 +384,7 @@ async function startAudit() {
   const r = await fetch('/api/live/audit-all', {method: 'POST'});
   if (!r.ok) {
     document.getElementById('transcript').textContent = await friendlyError(r);
-    document.getElementById('btnStart').disabled = false;
-    document.getElementById('btnAudit').disabled = false;
+    setRunControlsDisabled(false);
     return;
   }
   const data = await r.json();
@@ -380,8 +397,7 @@ function poll(jobId) {
     const r = await fetch(`/api/live/jobs/${jobId}`);
     if (!r.ok) {
       clearInterval(pollTimer);
-      document.getElementById('btnStart').disabled = false;
-      document.getElementById('btnAudit').disabled = false;
+      setRunControlsDisabled(false);
       document.getElementById('transcript').textContent =
         'Прогон потерян — сервер консоли перезапускался (обновление кода) и забыл про него. Запустите заново.';
       return;
@@ -392,8 +408,7 @@ function poll(jobId) {
     renderMemoryEvents(job.steps);
     if (job.status !== 'running') {
       clearInterval(pollTimer);
-      document.getElementById('btnStart').disabled = false;
-      document.getElementById('btnAudit').disabled = false;
+      setRunControlsDisabled(false);
       if (job.kind === 'audit') {
         renderAuditScorecard(job.result);
       } else {

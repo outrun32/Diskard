@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[4]
 EXAMPLES_DIR = ROOT / "examples"
 IDENTITIES_CACHE = EXAMPLES_DIR / ".identities.json"
 RECORDED_PRESENTATION = Path(__file__).parent / "fixtures" / "confirmed-lifecycle.json"
+RECORDED_REPLAY = Path(__file__).parent.parent / "demo" / "confirmed-replay.json"
 
 load_dotenv(ROOT / ".env")
 
@@ -461,7 +462,13 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     return {"succeeded": True, "finding": payload, "campaign": campaign.to_dict()}
 
 
-async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
+async def _live_run_body(
+    job: Job,
+    *,
+    attack: str,
+    driver: str,
+    replay_message: str | None = None,
+) -> dict:
     """Job body for the live console -- reuses cli._build_scenario (same
     attack-family dispatch the CLI uses) and checks/*.py's own verdicts via
     report.confidence_for, wrapping dispatch so the frontend can watch the
@@ -515,6 +522,8 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         data_subject_cus=DATA_SUBJECT_CUS,
         control_cus=CONTROL_CUS,
     )
+    if replay_message is not None:
+        args.poison_message = replay_message
 
     if driver == "llm-auto-attacker":
         attacker = _require_attacker()
@@ -597,6 +606,38 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         "message": check_result.message,
         "details": details,
         "confidence": confidence_for(details) if vulnerable else None,
+    }
+
+
+def _load_recorded_replay() -> dict[str, Any]:
+    data = json.loads(RECORDED_REPLAY.read_text(encoding="utf-8"))
+    replay = data.get("replay") or {}
+    if not replay.get("attack") or not replay.get("payload"):
+        raise ValueError("recorded replay is incomplete")
+    return replay
+
+
+async def _recorded_live_body(job: Job, *, max_trials: int = 6) -> dict:
+    replay = _load_recorded_replay()
+    last_outcome: dict[str, Any] | None = None
+    for trial in range(1, max_trials + 1):
+        job.emit(f"recorded live trial {trial}/{max_trials}")
+        outcome = await _live_run_body(
+            job,
+            attack=str(replay["attack"]),
+            driver="template",
+            replay_message=str(replay["payload"]),
+        )
+        last_outcome = {key: value for key, value in outcome.items() if key != "poison_message"}
+        last_outcome["demo_trials"] = trial
+        last_outcome["mode"] = "recorded-live"
+        if outcome.get("status") == "vulnerable":
+            return last_outcome
+    return last_outcome or {
+        "status": "error",
+        "error": "no trial completed",
+        "demo_trials": max_trials,
+        "mode": "recorded-live",
     }
 
 
@@ -707,6 +748,19 @@ def get_recorded_presentation():
     except (OSError, json.JSONDecodeError) as exc:
         raise HTTPException(503, "recorded presentation is unavailable") from exc
     return JSONResponse(content=fixture)
+
+
+@app.post("/api/live/recorded/start")
+async def start_recorded_live():
+    try:
+        _load_recorded_replay()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(503, "recorded replay is unavailable") from exc
+    job = _new_job("recorded-live")
+    import asyncio
+
+    asyncio.create_task(_run_job(job, _recorded_live_body))
+    return {"job_id": job.id}
 
 
 @app.post("/api/live/start")

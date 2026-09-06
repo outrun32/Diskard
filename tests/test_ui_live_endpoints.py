@@ -57,6 +57,26 @@ def test_recorded_presentation_exposes_only_the_versioned_ui_contract():
         assert forbidden not in serialized
 
 
+def test_recorded_live_control_and_endpoint_are_available():
+    from examples.connectors.investment_stand.ui.server import app
+
+    paths = {route.path for route in app.routes}
+    assert "/api/live/recorded/start" in paths
+
+    html_path = (
+        ROOT
+        / "examples"
+        / "connectors"
+        / "investment_stand"
+        / "ui"
+        / "static"
+        / "live.html"
+    )
+    html = html_path.read_text(encoding="utf-8")
+    assert 'id="btnRecordedLive"' in html
+    assert "startRecordedLive()" in html
+
+
 def test_live_start_rejects_unknown_attack():
     with _client() as client:
         resp = client.post(
