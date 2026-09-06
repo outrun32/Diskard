@@ -274,7 +274,7 @@ class InvestmentExecutionBridge:
             detail = actor.credential_env or actor.credential_file or "not configured"
             if auto_bootstrap and not (actor.credential_env or actor.credential_file):
                 detail = "automatic local bootstrap"
-            ready = configured or (auto_bootstrap and bootstrap_error is None)
+            ready = bootstrap_error is None if auto_bootstrap else configured
             reason = None
             if not ready:
                 reason = (

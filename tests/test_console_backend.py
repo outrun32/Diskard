@@ -88,6 +88,7 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
     client = httpx.AsyncClient(transport=httpx.MockTransport(healthy))
     monkeypatch.setattr("diskard.console.bridge.httpx.AsyncClient", lambda **_: client)
     monkeypatch.setattr(identity, "KeycloakBootstrap", FakeBootstrap)
+    monkeypatch.setenv("DISKARD_TEST_SUBJECT_KEY", "existing-subject-key")
     monkeypatch.setenv("DISKARD_TEST_STALE_TOKEN", "stale-token")
     target = TargetProfile.model_validate(
         {
@@ -100,6 +101,7 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
                 "trigger_user": {"cus": "1002"},
                 "data_subject": {
                     "cus": "1003",
+                    "credential_env": "DISKARD_TEST_SUBJECT_KEY",
                     "access_token_env": "DISKARD_TEST_STALE_TOKEN",
                 },
             },
@@ -114,14 +116,14 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
     attacks = ["cross-user-global-policy-poisoning"]
     report = await bridge.validate(target, attacks=attacks)
     assert report.ready
-    assert calls["keys"] == 3
+    assert calls["keys"] == 2
     assert "stale-token" not in key_tokens
 
     actors = await bridge._actors(
         target, required_roles={"attacker", "trigger_user", "data_subject"}
     )
     assert actors["data_subject"].access_token == "token-1003"
-    assert calls["keys"] == 3
+    assert calls["keys"] == 2
 
     FakeBootstrap.fail = True
     failed = await InvestmentExecutionBridge().validate(target, attacks=attacks)
