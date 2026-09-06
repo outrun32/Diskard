@@ -70,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the number of independent confirmation runs from the config.",
     )
     scan.add_argument(
+        "--activation-strategy",
+        choices=["default", "comparison", "policy-aware", "single-choice"],
+        default=None,
+        help="Use one trusted activation variant; adaptive search selects this automatically.",
+    )
+    scan.add_argument(
         "--fail-on",
         choices=["observed", "confirmed", "never"],
         default="confirmed",
@@ -236,6 +242,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
     replay_payload = getattr(args, "poison_message", None)
     if replay_payload is not None:
         scenario_args.poison_message = replay_payload
+    scenario_args.activation_strategy = getattr(args, "activation_strategy", None) or "default"
 
     run_id = new_run_id()
     outer_checkpoint = None
@@ -320,9 +327,20 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
             print(f"[FAIL] attacker configuration failed: {exc}")
             return 3
 
-        async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+        async def execute_attempt(
+            index: int,
+            message: str,
+            idea: str,
+            activation_strategy: str,
+        ) -> AttemptResult:
             attempt_id = f"{new_run_id()}-search-{index}"
-            attempt_args = SimpleNamespace(**vars(scenario_args), poison_message=message)
+            attempt_args = SimpleNamespace(
+                **{
+                    **vars(scenario_args),
+                    "poison_message": message,
+                    "activation_strategy": activation_strategy,
+                }
+            )
             attempt_scenario, _ = _build_scenario(attempt_args, dispatch, attempt_id)
             attempt_result = await execute_scenario(attempt_scenario, attempt_id)
             step = attempt_result.results[0].steps[0]
@@ -347,6 +365,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                 session_id=attempt_id,
                 feedback=attacker_feedback_from_bundle(attempt=index, bundle=evidence),
                 terminal_goal_reached=step.results[0].status.value == "fail",
+                activation_strategy=activation_strategy,
             )
 
         try:
@@ -370,6 +389,12 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
             print("LLM attacker produced no attempts")
             return 3
         scenario_args.poison_message = campaign.winning_message or campaign.attempts[-1].message
+        selected_attempt = (
+            campaign.attempts[campaign.winning_index - 1]
+            if campaign.winning_index is not None
+            else campaign.attempts[-1]
+        )
+        scenario_args.activation_strategy = selected_attempt.activation_strategy
 
     repeat_count = args.repeats or config.execution.repeats
     run_records: list[dict] = []
@@ -431,6 +456,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
                                 "driver": driver,
                                 "max_attempts": args.max_attempts or config.attacker.max_attempts,
                                 "repeats": repeat_count,
+                                "activation_strategy": scenario_args.activation_strategy,
                             },
                         ),
                         status="confirmed" if confirmed else "observed",
@@ -496,6 +522,7 @@ async def _run_config_scan(args: argparse.Namespace) -> int:
             "driver": driver,
             "max_attempts": args.max_attempts or config.attacker.max_attempts,
             "repeats": repeat_count,
+            "activation_strategy": scenario_args.activation_strategy,
         },
     )
     run_dir = _run_id_dir(run_id)
@@ -647,6 +674,7 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
         else (manifest.get("metadata") or {}).get("driver"),
         max_attempts=(manifest.get("metadata") or {}).get("max_attempts"),
         repeats=(manifest.get("metadata") or {}).get("repeats"),
+        activation_strategy=(manifest.get("metadata") or {}).get("activation_strategy"),
         poison_message=manifest.get("payload"),
         fail_on=manifest["fail_on"],
     )

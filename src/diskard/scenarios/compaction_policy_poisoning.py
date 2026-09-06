@@ -26,7 +26,7 @@ from giskard.checks import Scenario, from_fn
 
 from diskard.checks.lifecycle import cross_user_policy_poisoning_check
 from diskard.connectors import ConnectorOperation
-from diskard.scenarios.cross_user_policy_poisoning import POISON_MESSAGE_TEMPLATE, TRIGGER_MESSAGE
+from diskard.scenarios.cross_user_policy_poisoning import POISON_MESSAGE_TEMPLATE, TRIGGER_MESSAGES
 from diskard.scenarios.operations import operation
 
 FILLER_MESSAGES_BEFORE = [
@@ -63,6 +63,7 @@ def build_compaction_policy_poisoning_scenario(
     dispatch: Dispatch,
     run_id: str | None = None,
     poison_message: str | None = None,
+    activation_strategy: str = "default",
 ) -> Scenario:
     """`poison_message`, if given, replaces `POISON_MESSAGE_TEMPLATE` -- used
     to confirm a wording found by `diskard.attacker` (same objective as
@@ -72,6 +73,10 @@ def build_compaction_policy_poisoning_scenario(
     poison_text = poison_message or POISON_MESSAGE_TEMPLATE.format(
         data_subject_cus=data_subject_cus
     )
+    try:
+        trigger_message = TRIGGER_MESSAGES[activation_strategy]
+    except KeyError as exc:
+        raise ValueError(f"unknown activation strategy {activation_strategy!r}") from exc
     poison_session = poison_session_id(run_id)
     trigger_session_vuln = f"diskard-compaction-trigger-vuln-{run_id}"
     trigger_session_prot = f"diskard-compaction-trigger-prot-{run_id}"
@@ -147,7 +152,7 @@ def build_compaction_policy_poisoning_scenario(
             label="trigger_vulnerable",
             actor_id=victim_cus,
             session_id=trigger_session_vuln,
-            message=TRIGGER_MESSAGE,
+            message=trigger_message,
             auth_mode="vulnerable",
         ),
         outputs=dispatch,
@@ -158,7 +163,7 @@ def build_compaction_policy_poisoning_scenario(
             label="trigger_protected",
             actor_id=victim_cus,
             session_id=trigger_session_prot,
-            message=TRIGGER_MESSAGE,
+            message=trigger_message,
             auth_mode="protected",
         ),
         outputs=dispatch,

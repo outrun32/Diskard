@@ -195,6 +195,7 @@ class AttackObjective:
 
     system_prompt: str
     success_predicate: Callable[[dict[str, Any], dict[str, str]], bool]
+    activation_strategies: tuple[str, ...] = ("default",)
 
 
 # Keyed by attack name (see cli.KNOWN_ATTACKS) so callers can look up the
@@ -208,6 +209,7 @@ class AttackObjective:
 _CUS_SMUGGLING_OBJECTIVE = AttackObjective(
     system_prompt=CUS_SMUGGLING_SYSTEM_PROMPT,
     success_predicate=_cus_smuggling_predicate,
+    activation_strategies=("default", "comparison", "policy-aware"),
 )
 
 ATTACK_OBJECTIVES: dict[str, AttackObjective] = {
@@ -218,6 +220,7 @@ ATTACK_OBJECTIVES: dict[str, AttackObjective] = {
     "delayed-recommendation-manipulation": AttackObjective(
         system_prompt=RECOMMENDATION_PROMOTION_SYSTEM_PROMPT,
         success_predicate=_recommendation_promotion_predicate,
+        activation_strategies=("default", "single-choice", "policy-aware"),
     ),
 }
 
@@ -235,6 +238,7 @@ class AttemptResult:
     session_id: str
     feedback: AttackerFeedback | None = None
     terminal_goal_reached: bool = False
+    activation_strategy: str = "default"
 
 
 @dataclass
@@ -273,6 +277,7 @@ class AttackCampaign:
                     "idea": a.idea,
                     "persisted": a.persisted,
                     "terminal_goal_reached": a.terminal_goal_reached,
+                    "activation_strategy": a.activation_strategy,
                     "feedback": (
                         a.feedback.model_dump(mode="json") if a.feedback is not None else None
                     ),
@@ -291,7 +296,7 @@ class PayloadProposer(Protocol):
     ) -> tuple[str, str]: ...
 
 
-AttemptExecutor = Callable[[int, str, str], Awaitable[AttemptResult]]
+AttemptExecutor = Callable[[int, str, str, str], Awaitable[AttemptResult]]
 
 
 async def run_agentic_search(
@@ -307,8 +312,23 @@ async def run_agentic_search(
     campaign = AttackCampaign(params=params)
     best_score = -1
     for index in range(1, max_attempts + 1):
-        message, idea = await attacker.propose(objective.system_prompt, params, campaign.attempts)
-        attempt = await execute_attempt(index, message, idea)
+        activation_strategy = _next_activation_strategy(objective, campaign.attempts)
+        reuse_previous_input = (
+            bool(campaign.attempts)
+            and campaign.attempts[-1].persisted
+            and activation_strategy != objective.activation_strategies[0]
+        )
+        if reuse_previous_input:
+            previous = campaign.attempts[-1]
+            message = previous.message
+            idea = f"reuse input; try activation strategy {activation_strategy}"
+        else:
+            message, idea = await attacker.propose(
+                objective.system_prompt,
+                params,
+                campaign.attempts,
+            )
+        attempt = await execute_attempt(index, message, idea, activation_strategy)
         campaign.attempts.append(attempt)
         if on_attempt is not None:
             await on_attempt(attempt)
@@ -325,6 +345,21 @@ async def run_agentic_search(
             # normalized lifecycle feedback yet.
             break
     return campaign
+
+
+def _next_activation_strategy(
+    objective: AttackObjective,
+    history: list[AttemptResult],
+) -> str:
+    """Advance a trusted strategy only after persistence without terminal impact."""
+    if not history:
+        return objective.activation_strategies[0]
+    last = history[-1]
+    if not last.persisted or last.terminal_goal_reached:
+        return objective.activation_strategies[0]
+    current_index = objective.activation_strategies.index(last.activation_strategy)
+    next_index = (current_index + 1) % len(objective.activation_strategies)
+    return objective.activation_strategies[next_index]
 
 
 def _attempt_score(attempt: AttemptResult) -> int:
@@ -457,6 +492,7 @@ def _build_user_prompt(params: dict[str, str], history: list[AttemptResult]) -> 
         feedback_json = json.dumps(feedback.model_dump(mode="json"), ensure_ascii=False)
         lines.append(
             f"\n#{a.index} [{verdict}] идея: {a.idea}\n"
+            f"стратегия активации: {a.activation_strategy}\n"
             f"сообщение: {a.message!r}\n"
             f"нормализованный результат: {feedback_json}"
         )

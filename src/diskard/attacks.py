@@ -53,6 +53,7 @@ def _policy_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, str]:
         dispatch=dispatch,
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
+        activation_strategy=getattr(args, "activation_strategy", "default"),
     )
     return scenario, poison_session_id(run_id)
 
@@ -70,6 +71,7 @@ def _compaction_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, st
         dispatch=dispatch,
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
+        activation_strategy=getattr(args, "activation_strategy", "default"),
     )
     return scenario, poison_session_id(run_id)
 
@@ -103,6 +105,7 @@ def _recommendation_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any
         dispatch=dispatch,
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
+        activation_strategy=getattr(args, "activation_strategy", "default"),
     )
     return scenario, poison_session_id(run_id)
 

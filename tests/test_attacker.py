@@ -180,7 +180,9 @@ async def test_agentic_search_stops_after_a_persisting_attempt():
     attacker = AttackerLLM(generator=generator)
     seen: list[int] = []
 
-    async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+    async def execute_attempt(
+        index: int, message: str, idea: str, activation_strategy: str
+    ) -> AttemptResult:
         seen.append(index)
         return AttemptResult(
             index=index,
@@ -192,6 +194,7 @@ async def test_agentic_search_stops_after_a_persisting_attempt():
             persisted=index == 2,
             reply="target reply",
             session_id=f"search-{index}",
+            activation_strategy=activation_strategy,
         )
 
     campaign = await run_agentic_search(
@@ -212,9 +215,13 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
     generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
     attacker = AttackerLLM(generator=generator)
     seen: list[int] = []
+    strategies: list[str] = []
 
-    async def execute_attempt(index: int, message: str, idea: str) -> AttemptResult:
+    async def execute_attempt(
+        index: int, message: str, idea: str, activation_strategy: str
+    ) -> AttemptResult:
         seen.append(index)
+        strategies.append(activation_strategy)
         terminal = index == 2
         feedback = AttackerFeedback(
             attempt=index,
@@ -239,6 +246,7 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
             session_id=f"search-{index}",
             feedback=feedback,
             terminal_goal_reached=terminal,
+            activation_strategy=activation_strategy,
         )
 
     campaign = await run_agentic_search(
@@ -252,6 +260,8 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
     assert seen == [1, 2]
     assert campaign.terminal_succeeded is True
     assert campaign.terminal_index == 2
+    assert strategies == ["default", "comparison"]
+    assert len(generator.calls) == 1
 
 
 def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):

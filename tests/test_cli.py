@@ -59,12 +59,15 @@ def test_scan_accepts_llm_agent_driver_without_running_it():
             "2",
             "--repeats",
             "4",
+            "--activation-strategy",
+            "comparison",
         ]
     )
 
     assert args.driver == "llm-agent"
     assert args.max_attempts == 2
     assert args.repeats == 4
+    assert args.activation_strategy == "comparison"
 
 
 def test_scan_rejects_zero_attempt_budget():

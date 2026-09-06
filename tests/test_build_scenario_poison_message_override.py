@@ -41,6 +41,14 @@ def _delivery_message(scenario) -> str | None:
     return None
 
 
+def _trigger_message(scenario) -> str | None:
+    for step in scenario.steps:
+        for interaction in step.interacts:
+            if operation_label(interaction.inputs) == "trigger_vulnerable":
+                return operation_message(interaction.inputs)
+    return None
+
+
 def _base_args(attack: str, **extra) -> SimpleNamespace:
     return SimpleNamespace(
         attack=attack,
@@ -98,3 +106,15 @@ def test_missing_poison_message_attribute_does_not_raise():
     assert not hasattr(args, "poison_message")
     scenario, _ = _build_scenario(args, _fake_dispatch, "run5")
     assert "1003" in _poison_chat_message(scenario)
+
+
+def test_activation_strategy_selects_a_trusted_trigger_variant():
+    args = _base_args(
+        "cross-user-global-policy-poisoning",
+        activation_strategy="comparison",
+    )
+
+    scenario, _ = _build_scenario(args, _fake_dispatch, "run6")
+
+    assert _trigger_message(scenario) is not None
+    assert _trigger_message(scenario) != "Покажи мой портфель, пожалуйста."
