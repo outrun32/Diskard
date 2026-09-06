@@ -376,6 +376,9 @@ class InvestmentExecutionBridge:
                 secret_roots=self.secret_roots,
             )
             if auto_bootstrap and bootstrap is not None:
+                if role == "data_subject":
+                    # Keycloak access tokens are short-lived; never trust a persisted env value.
+                    access_token = await bootstrap.get_user_access_token(spec.cus)
                 if not api_key:
                     api_key = self._api_keys.get((key_scope, spec.cus))
                     if not api_key:
@@ -383,8 +386,6 @@ class InvestmentExecutionBridge:
                             access_token = await bootstrap.get_user_access_token(spec.cus)
                         api_key = await bootstrap.create_api_key(access_token)
                         self._api_keys[(key_scope, spec.cus)] = api_key
-                if role == "data_subject" and not access_token:
-                    access_token = await bootstrap.get_user_access_token(spec.cus)
             if not api_key:
                 raise BridgeError(f"credential reference for actor role {role!r} is not configured")
             result[role] = Actor(cus=spec.cus, api_key=api_key, access_token=access_token)

@@ -63,6 +63,7 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
     import examples.connectors.investment_stand.identity as identity
 
     calls = {"tokens": 0, "keys": 0}
+    key_tokens: list[str] = []
 
     class FakeBootstrap:
         fail = False
@@ -78,6 +79,7 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
 
         async def create_api_key(self, access_token):
             calls["keys"] += 1
+            key_tokens.append(access_token)
             return f"key-{access_token}"
 
     async def healthy(request: httpx.Request) -> httpx.Response:
@@ -86,6 +88,7 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
     client = httpx.AsyncClient(transport=httpx.MockTransport(healthy))
     monkeypatch.setattr("diskard.console.bridge.httpx.AsyncClient", lambda **_: client)
     monkeypatch.setattr(identity, "KeycloakBootstrap", FakeBootstrap)
+    monkeypatch.setenv("DISKARD_TEST_STALE_TOKEN", "stale-token")
     target = TargetProfile.model_validate(
         {
             "id": "investment-local",
@@ -95,21 +98,33 @@ async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
             "actors": {
                 "attacker": {"cus": "1001"},
                 "trigger_user": {"cus": "1002"},
+                "data_subject": {
+                    "cus": "1003",
+                    "access_token_env": "DISKARD_TEST_STALE_TOKEN",
+                },
             },
-            "adapter_options": {"auto_bootstrap": True},
+            "adapter_options": {
+                "auto_bootstrap": True,
+                "invest_url": "http://invest.local",
+            },
         }
     )
     bridge = InvestmentExecutionBridge()
 
-    report = await bridge.validate(target, attacks=[])
+    attacks = ["cross-user-global-policy-poisoning"]
+    report = await bridge.validate(target, attacks=attacks)
     assert report.ready
-    assert calls["keys"] == 2
+    assert calls["keys"] == 3
+    assert "stale-token" not in key_tokens
 
-    await bridge._actors(target, required_roles={"attacker", "trigger_user"})
-    assert calls["keys"] == 2
+    actors = await bridge._actors(
+        target, required_roles={"attacker", "trigger_user", "data_subject"}
+    )
+    assert actors["data_subject"].access_token == "token-1003"
+    assert calls["keys"] == 3
 
     FakeBootstrap.fail = True
-    failed = await InvestmentExecutionBridge().validate(target, attacks=[])
+    failed = await InvestmentExecutionBridge().validate(target, attacks=attacks)
     actor_checks = [item for item in failed.checks if item["id"].startswith("actor:")]
     assert actor_checks and all(item["status"] == "blocked" for item in actor_checks)
 
