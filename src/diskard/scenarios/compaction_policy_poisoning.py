@@ -26,7 +26,10 @@ from giskard.checks import Scenario, from_fn
 
 from diskard.checks.lifecycle import cross_user_policy_poisoning_check
 from diskard.connectors import ConnectorOperation
-from diskard.scenarios.cross_user_policy_poisoning import POISON_MESSAGE_TEMPLATE, TRIGGER_MESSAGES
+from diskard.scenarios.cross_user_policy_poisoning import (
+    CUS_POISON_TEMPLATES,
+    TRIGGER_MESSAGES,
+)
 from diskard.scenarios.operations import operation
 
 FILLER_MESSAGES_BEFORE = [
@@ -71,9 +74,15 @@ def build_compaction_policy_poisoning_scenario(
     cross_user_policy_poisoning's, since this scenario shares its payload
     and oracle, only the delivery pattern differs)."""
     run_id = run_id or new_run_id()
-    poison_text = poison_message or POISON_MESSAGE_TEMPLATE.format(
-        data_subject_cus=data_subject_cus
-    )
+    # When no override is given, cycle through the expanded template
+    # catalogue so different repeats exercise different delivery patterns.
+    if poison_message:
+        poison_text = poison_message
+    else:
+        # Pick a template based on run_id hash for deterministic variety
+        # across repeats without adding state to the builder signature.
+        template = CUS_POISON_TEMPLATES[hash(run_id) % len(CUS_POISON_TEMPLATES)]
+        poison_text = template.format(data_subject_cus=data_subject_cus)
     try:
         trigger_message = TRIGGER_MESSAGES[activation_strategy]
     except KeyError as exc:
