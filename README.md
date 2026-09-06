@@ -94,8 +94,8 @@ docker compose up --build -d
 ```
 
 It creates the durable database and `investment-local` profile automatically.
-When the local stand is available, the first run bootstraps its standard test
-users through Keycloak. See [the local console quickstart](./docs/local-console-quickstart.md)
+When the local stand is available, profile validation bootstraps its standard
+test users through Keycloak. See [the local console quickstart](./docs/local-console-quickstart.md)
 for the expected stand endpoints and custom-target setup.
 
 ## CLI

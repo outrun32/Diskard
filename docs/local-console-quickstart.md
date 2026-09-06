@@ -11,7 +11,7 @@ Start Diskard from the repository root:
 docker compose up --build -d
 ```
 
-Open <http://localhost:8700/> and select `investment-local`. When a run starts,
+Open <http://localhost:8700/> and select `investment-local`. During profile validation,
 Diskard obtains short-lived access tokens and API keys for the test users through
 the local Keycloak realm. No target credential variables or target profile file are
 needed for this local mode.

@@ -7,11 +7,16 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from diskard.console.bridge import FakeExecutionBridge, InvestmentExecutionBridge
+from diskard.console.bridge import (
+    FakeExecutionBridge,
+    InvestmentExecutionBridge,
+    auto_bootstrap_enabled,
+)
 from diskard.console.contracts import EventRecord, RunSpec, TargetProfile
 from diskard.console.redaction import REDACTED, redact
 from diskard.console.reports import render
 from diskard.console.repository import RunStore, make_engine, migrate
+from diskard.console.runtime import default_local_profile
 from diskard.console.settings import ConsoleSettings
 
 
@@ -51,6 +56,72 @@ async def test_investment_target_validation_uses_healthz(monkeypatch):
     assert requested == ["http://stand.local/healthz"]
     target_check = next(check for check in report.checks if check["id"] == "target_api")
     assert target_check["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_local_bootstrap_is_validated_disabled_and_cached(monkeypatch):
+    import examples.connectors.investment_stand.identity as identity
+
+    calls = {"tokens": 0, "keys": 0}
+
+    class FakeBootstrap:
+        fail = False
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def get_user_access_token(self, cus):
+            calls["tokens"] += 1
+            if self.fail:
+                raise RuntimeError("keycloak unavailable")
+            return f"token-{cus}"
+
+        async def create_api_key(self, access_token):
+            calls["keys"] += 1
+            return f"key-{access_token}"
+
+    async def healthy(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "ok"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(healthy))
+    monkeypatch.setattr("diskard.console.bridge.httpx.AsyncClient", lambda **_: client)
+    monkeypatch.setattr(identity, "KeycloakBootstrap", FakeBootstrap)
+    target = TargetProfile.model_validate(
+        {
+            "id": "investment-local",
+            "name": "Local investment stand",
+            "adapter": "investment-stand",
+            "base_url": "http://stand.local",
+            "actors": {
+                "attacker": {"cus": "1001"},
+                "trigger_user": {"cus": "1002"},
+            },
+            "adapter_options": {"auto_bootstrap": True},
+        }
+    )
+    bridge = InvestmentExecutionBridge()
+
+    report = await bridge.validate(target, attacks=[])
+    assert report.ready
+    assert calls["keys"] == 2
+
+    await bridge._actors(target, required_roles={"attacker", "trigger_user"})
+    assert calls["keys"] == 2
+
+    FakeBootstrap.fail = True
+    failed = await InvestmentExecutionBridge().validate(target, attacks=[])
+    actor_checks = [item for item in failed.checks if item["id"].startswith("actor:")]
+    assert actor_checks and all(item["status"] == "blocked" for item in actor_checks)
+
+    disabled = target.model_copy(update={"adapter_options": {"auto_bootstrap": False}})
+    assert auto_bootstrap_enabled(disabled) is False
+
+
+def test_default_local_profile_keeps_agent_endpoint_in_sync(monkeypatch):
+    monkeypatch.setenv("DISKARD_TARGET_URL", "http://custom.local:9999")
+    target = default_local_profile()
+    assert target.base_url == "http://custom.local:9999"
+    assert target.adapter_options["agent_api_url"] == target.base_url
 
 
 @pytest.fixture

@@ -13,6 +13,7 @@ from uuid import uuid4
 from diskard.console.bridge import (
     ExecutionBridge,
     InvestmentExecutionBridge,
+    auto_bootstrap_enabled,
 )
 from diskard.console.contracts import (
     EventRecord,
@@ -31,11 +32,12 @@ log = logging.getLogger("diskard.console")
 
 def default_local_profile() -> TargetProfile:
     """Return the zero-configuration profile for the bundled local stand."""
+    base_url = os.getenv("DISKARD_TARGET_URL", "http://host.docker.internal:8600")
     return TargetProfile(
         id="investment-local",
         name="Local investment stand",
         adapter="investment-stand",
-        base_url=os.getenv("DISKARD_TARGET_URL", "http://host.docker.internal:8600"),
+        base_url=base_url,
         actors={
             "attacker": {"cus": "1001"},
             "trigger_user": {"cus": "1002"},
@@ -47,7 +49,7 @@ def default_local_profile() -> TargetProfile:
             "keycloak_url": "http://host.docker.internal:8180",
             "keycloak_realm": "genai-stand",
             "ui_client_id": "streamlit-ui",
-            "agent_api_url": "http://host.docker.internal:8600",
+            "agent_api_url": base_url,
             "invest_url": "http://host.docker.internal:8200",
         },
     )
@@ -269,25 +271,7 @@ class ConsoleRuntime:
     def public_profile(self, row: dict[str, Any]) -> dict[str, Any]:
         config = row.get("config") or {}
         actors = config.get("actors", {})
-        expected_local_actors = {
-            "attacker": "1001",
-            "trigger_user": "1002",
-            "data_subject": "1003",
-            "control": "1004",
-        }
-        legacy_local_profile = (
-            config.get("adapter") == "investment-stand"
-            and config.get("base_url") == "http://host.docker.internal:8600"
-            and all(
-                isinstance(actors.get(role), dict) and actors[role].get("cus") == cus
-                for role, cus in expected_local_actors.items()
-            )
-        )
-        auto_bootstrap = (
-            config.get("adapter_options", {}).get("auto_bootstrap") is True
-            or config.get("id") == "investment-local"
-            or legacy_local_profile
-        )
+        auto_bootstrap = auto_bootstrap_enabled(TargetProfile.model_validate(config))
         public_actors = {}
         for role, actor in actors.items():
             refs = {
