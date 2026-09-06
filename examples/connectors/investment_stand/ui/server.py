@@ -491,7 +491,7 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         policy_records = [
             r for r in ctx.mongo.snapshot() if r.get("source_session_id") == op.session_id
         ]
-        semantic_records = ctx.semantic.find_by_user(op.actor_cus)
+        semantic_records = ctx.semantic.find_by_user(operation_actor_id(op))
         return {
             "policy_written": len(policy_records) > 0,
             "policy_mentions_data_subject": any(
