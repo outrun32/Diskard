@@ -10,6 +10,7 @@ import pytest
 from diskard.console.bridge import (
     FakeExecutionBridge,
     InvestmentExecutionBridge,
+    _memory_options,
     auto_bootstrap_enabled,
 )
 from diskard.console.contracts import EventRecord, RunSpec, TargetProfile
@@ -39,6 +40,34 @@ def test_adaptive_driver_is_available_for_azure_attacker(monkeypatch):
     adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
     assert adaptive["id"] == "llm-auto-attacker"
     assert adaptive["available"] is True
+
+
+def test_memory_mapping_accepts_nested_json_and_defaults_collections():
+    target = TargetProfile.model_validate(
+        {
+            "id": "investment",
+            "name": "Investment stand",
+            "adapter": "investment-stand",
+            "base_url": "http://stand.local",
+            "adapter_options": {
+                "memory": {
+                    "type": "mongodb",
+                    "uri_env": "TARGET_MEMORY_URI",
+                    "database": "custom_memory",
+                    "policy_collection": "policies",
+                    "semantic_collection": "facts",
+                }
+            },
+        }
+    )
+    assert _memory_options(target) == {
+        "type": "mongodb",
+        "uri_env": "TARGET_MEMORY_URI",
+        "database": "custom_memory",
+        "policy_collection": "policies",
+        "semantic_collection": "facts",
+        "redis_url": "redis://host.docker.internal:6379/0",
+    }
 
 
 @pytest.mark.asyncio
@@ -324,7 +353,7 @@ def test_investment_bridge_runs_existing_giskard_scenario_with_mocked_transport(
             return None
 
     class FakeMongo:
-        def __init__(self, mongo_uri):
+        def __init__(self, mongo_uri, **_):
             self.snapshots = 0
 
         def snapshot(self):
@@ -344,7 +373,7 @@ def test_investment_bridge_runs_existing_giskard_scenario_with_mocked_transport(
             return 1
 
     class FakeSemantic:
-        def __init__(self, mongo_uri):
+        def __init__(self, mongo_uri, **_):
             pass
 
         def find_by_user(self, user_id):

@@ -144,6 +144,37 @@ def auto_bootstrap_enabled(profile: TargetProfile) -> bool:
     )
 
 
+def _memory_options(profile: TargetProfile) -> dict[str, str]:
+    """Resolve the standard memory mapping, keeping legacy flat keys working."""
+    options = profile.adapter_options
+    configured = options.get("memory", {})
+    if not isinstance(configured, dict):
+        raise BridgeError("adapter_options.memory must be a JSON object")
+    return {
+        "type": str(configured.get("type") or options.get("memory_type", "mongodb")),
+        "uri_env": str(
+            configured.get("uri_env")
+            or configured.get("mongo_uri_env")
+            or options.get("mongo_uri_env", "")
+        ),
+        "database": str(
+            configured.get("database") or options.get("mongo_db", "agent_memory")
+        ),
+        "policy_collection": str(
+            configured.get("policy_collection")
+            or options.get("policy_collection", "agent_policy_memories")
+        ),
+        "semantic_collection": str(
+            configured.get("semantic_collection")
+            or options.get("semantic_collection", "semantic_memories")
+        ),
+        "redis_url": str(
+            configured.get("redis_url")
+            or options.get("redis_url", "redis://host.docker.internal:6379/0")
+        ),
+    }
+
+
 def _suite_status(suite_result: Any) -> str:
     status = getattr(suite_result, "status", None)
     if status is not None:
@@ -329,24 +360,44 @@ class InvestmentExecutionBridge:
                 }
             )
 
-        mongo_ref = profile.adapter_options.get("mongo_uri_env")
-        mongo_uri = os.getenv(str(mongo_ref)) if mongo_ref else None
+        try:
+            memory = _memory_options(profile)
+        except BridgeError as exc:
+            checks.append(
+                {
+                    "id": "evidence:mongo",
+                    "label": "Mongo evidence collector",
+                    "status": "blocked",
+                    "reason": str(exc),
+                }
+            )
+            memory = {
+                "type": "invalid",
+                "uri_env": "",
+                "database": "agent_memory",
+                "policy_collection": "agent_policy_memories",
+                "semantic_collection": "semantic_memories",
+                "redis_url": "redis://host.docker.internal:6379/0",
+            }
+        mongo_ref = memory["uri_env"]
+        mongo_uri = os.getenv(mongo_ref) if mongo_ref else None
         if not mongo_uri and auto_bootstrap:
             mongo_uri = str(
                 profile.adapter_options.get("mongo_uri", "mongodb://host.docker.internal:27017")
             ) or None
-        mongo_configured = bool(mongo_uri)
-        checks.append(
-            {
-                "id": "evidence:mongo",
-                "label": "Mongo evidence collector",
-                "status": "ready" if mongo_configured else "blocked",
-                "detail": mongo_ref or mongo_uri or "missing mongo_uri_env",
-                "reason": None
-                if mongo_configured
-                else "configure a non-secret Mongo URI reference",
-            }
-        )
+        mongo_configured = memory["type"] == "mongodb" and bool(mongo_uri)
+        if not any(check["id"] == "evidence:mongo" for check in checks):
+            checks.append(
+                {
+                    "id": "evidence:mongo",
+                    "label": "Mongo evidence collector",
+                    "status": "ready" if mongo_configured else "blocked",
+                    "detail": mongo_ref or mongo_uri or "missing memory.uri_env",
+                    "reason": None
+                    if mongo_configured
+                    else "configure memory.type=mongodb and a non-secret memory.uri_env",
+                }
+            )
         invest_url = profile.adapter_options.get("invest_url")
         checks.append(
             {
@@ -473,8 +524,11 @@ class InvestmentExecutionBridge:
             if value
         )
         config = run_spec.profile
-        mongo_ref = config.adapter_options.get("mongo_uri_env")
-        mongo_uri = os.getenv(str(mongo_ref)) if mongo_ref else None
+        memory = _memory_options(config)
+        if memory["type"] != "mongodb":
+            raise BridgeError(f"unsupported memory evidence type {memory['type']!r}")
+        mongo_ref = memory["uri_env"]
+        mongo_uri = os.getenv(mongo_ref) if mongo_ref else None
         if not mongo_uri and auto_bootstrap_enabled(config):
             mongo_uri = str(
                 config.adapter_options.get("mongo_uri", "mongodb://host.docker.internal:27017")
@@ -486,9 +540,17 @@ class InvestmentExecutionBridge:
         if not invest_url and "data_subject" in required:
             raise BridgeError("adapter_options.invest_url is required")
         stand = StandClient(config.base_url)
-        mongo = MongoEvidence(mongo_uri=mongo_uri)
+        mongo = MongoEvidence(
+            mongo_uri=mongo_uri,
+            db=memory["database"],
+            collection=memory["policy_collection"],
+        )
         invest = InvestServerEvidence(base_url=invest_url or config.base_url)
-        semantic = SemanticMemoryEvidence(mongo_uri=mongo_uri)
+        semantic = SemanticMemoryEvidence(
+            mongo_uri=mongo_uri,
+            db=memory["database"],
+            collection=memory["semantic_collection"],
+        )
         isolation = None
         if adaptive:
             from examples.connectors.investment_stand.connector import MongoNamespaceIsolation
@@ -496,7 +558,7 @@ class InvestmentExecutionBridge:
             isolation = MongoNamespaceIsolation(
                 mongo_uri=mongo_uri,
                 redis_url=str(
-                    config.adapter_options.get("redis_url", "redis://host.docker.internal:6379/0")
+                    memory["redis_url"]
                 ),
             )
         actor_by_cus = {actor.cus: actor for actor in actors.values()}

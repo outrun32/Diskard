@@ -22,3 +22,13 @@ targets:
     adapter_options:
       invest_url: http://host.docker.internal:8200
       mongo_uri_env: DISKARD_TARGET_MONGO_URI
+      mongo_db: agent_memory
+      policy_collection: agent_policy_memories
+      semantic_collection: semantic_memories
+      # Or group the same mapping under adapter_options.memory:
+      # memory:
+      #   type: mongodb
+      #   uri_env: DISKARD_TARGET_MONGO_URI
+      #   database: agent_memory
+      #   policy_collection: agent_policy_memories
+      #   semantic_collection: semantic_memories

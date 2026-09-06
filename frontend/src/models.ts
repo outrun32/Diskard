@@ -140,11 +140,15 @@ export function mapDetail(value: unknown): RunDetail {
       allowedAdaptations: Array.isArray(attempt.allowed_adaptations) ? attempt.allowed_adaptations.map(String) : [],
     };
   }) : [];
-  const presentationEvents = Array.isArray(presentation.timeline) ? presentation.timeline.map(mapPresentationEvent) : [];
-  const run = mapRun(value);
-  return {
-    ...run, stages, attempts,
-    events: presentationEvents.length ? presentationEvents : Array.isArray(r.events) ? r.events.map(mapEvent) : [],
+   const presentationEvents = Array.isArray(presentation.timeline) ? presentation.timeline.map(mapPresentationEvent) : [];
+   const storedEvents = Array.isArray(r.events) ? r.events.map(mapEvent) : [];
+   // Operation-completed events carry the real policy/semantic snapshots. Keep
+   // the normalized timeline as a fallback for older or black-box records.
+   const events = storedEvents.some(event => ["operation", "memory"].includes(event.kind) && event.status === "completed") ? storedEvents : presentationEvents;
+   const run = mapRun(value);
+   return {
+     ...run, stages, attempts,
+     events,
     config: {
       targetProfile: textValue(r.target_profile_id ?? c.target_profile) ?? "—",
       targetVersion: textValue(r.target_profile_version ?? c.target_version) ?? "—",
