@@ -171,11 +171,12 @@ uv run --extra investment-stand \
   --max-trials 6
 ```
 
-The recorded UI data lives at
+The legacy target-specific UI keeps a presentation fixture at
 `examples/connectors/investment_stand/ui/fixtures/confirmed-lifecycle.json`.
-It contains only the versioned `presentation` contract. The live console exposes
-it through `GET /api/live/recorded` and the **Записанный результат** control.
-Use **Live по записанному вводу** to run the saved input in up to six clean trials.
+The durable console exposes the bundled investment adapter's checked scenario
+as **Verified scenario** on the launch page. That control executes the scenario
+through the real durable run path and opens its live trace; the separate
+**Recorded playback** control remains read-only and never calls the target.
 
 Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
 

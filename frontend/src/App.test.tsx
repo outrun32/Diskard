@@ -89,6 +89,21 @@ mount("/runs/real-run/trace?mode=playback&event=1");const position=await screen.
  const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
  expect(JSON.parse(String(call[1]?.body))).toMatchObject({driver:"llm-auto-attacker"});
  });
+ it("launches the verified scenario through the durable run API",async()=>{
+  catalogDrivers=[{id:"template",available:true},{id:"verified-scenario",available:true}];
+  fetchMock.mockImplementation(async(path:string,init?:RequestInit)=>{
+   const u=new URL(path,"http://local");
+   const data=u.pathname==="/api/v1/targets"?{items:[profile]}:
+    u.pathname==="/api/v1/catalog"?{attacks:[{id:"delayed-recommendation-manipulation",available:true}],drivers:catalogDrivers,limitations:[]}:
+    u.pathname==="/api/v1/runs"&&init?.method==="POST"?{...run,id:"verified-run",scenario_version:"delayed-recommendation-manipulation"}:run;
+   return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});
+  });
+  mount("/runs/new?target=investment-local");
+  await userEvent.click(await screen.findByRole("button",{name:"Run verified scenario"}));
+  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/runs"&&init?.method==="POST")).toBe(true));
+  const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/runs"&&init?.method==="POST")!;
+  expect(JSON.parse(String(call[1]?.body))).toMatchObject({attack:"delayed-recommendation-manipulation",driver:"verified-scenario",budget:1,repeat:1});
+ });
  it("highlights findings and preloads their AI explanation",async()=>{
  const findingRun={...run,summary:{verdict:"observed",message:"Unsafe memory persisted"},finding:{confidence:"proven"}};
  fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");const data=u.pathname.endsWith("/events")?{items:[],last_event_sequence:0}:u.pathname.endsWith("/finding/explanation")?{explanation:"Issue: The model identified unsafe cross-user memory persistence. Evidence: The stored finding supports cross-user exposure. Recommendation: Scope memory reads and writes by authenticated user."}:findingRun;return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});});

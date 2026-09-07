@@ -11,6 +11,8 @@ from typing import Any
 from uuid import uuid4
 
 from diskard.console.bridge import (
+    VERIFIED_SCENARIO_ATTACK,
+    VERIFIED_SCENARIO_DRIVER,
     ExecutionBridge,
     InvestmentExecutionBridge,
     auto_bootstrap_enabled,
@@ -20,12 +22,12 @@ from diskard.console.contracts import (
     RunSpec,
     TargetProfile,
 )
+from diskard.console.redaction import redact
 from diskard.console.repository import (
     RunStore,
     make_engine,
     migrate,
 )
-from diskard.console.redaction import redact
 from diskard.console.settings import ConsoleSettings
 
 log = logging.getLogger("diskard.console")
@@ -370,8 +372,12 @@ class ConsoleRuntime:
         repeat = int(options.get("repeat", 1))
         if budget < 1 or budget > 20 or repeat != 1:
             raise ValueError("budget must be between 1 and 20; repeat is fixed at 1")
-        if driver == "template" and budget != 1:
-            raise ValueError("fixed-input driver requires budget=1")
+        if driver in {"template", VERIFIED_SCENARIO_DRIVER} and budget != 1:
+            raise ValueError("standard and verified scenario drivers require budget=1")
+        if driver == VERIFIED_SCENARIO_DRIVER and attack != VERIFIED_SCENARIO_ATTACK:
+            raise ValueError(
+                f"verified scenario driver requires {VERIFIED_SCENARIO_ATTACK}"
+            )
         run_id = uuid4().hex
         manifest = {
             "schema_version": 1,
@@ -416,6 +422,12 @@ class ConsoleRuntime:
             raise ValueError("Select at least one available attack")
         if not any(item["id"] == driver and item.get("available") for item in capabilities.drivers):
             raise ValueError("Selected driver is unavailable")
+        if driver == VERIFIED_SCENARIO_DRIVER and (
+            len(selected) != 1 or selected[0] != VERIFIED_SCENARIO_ATTACK
+        ):
+            raise ValueError(
+                "verified scenario driver requires one selected delayed recommendation scenario"
+            )
         existing = store.check_submission(submission_id)
         if existing is None:
             readiness = await self.bridge.validate(

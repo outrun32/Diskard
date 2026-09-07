@@ -11,6 +11,7 @@ from diskard.console.bridge import (
     FakeExecutionBridge,
     InvestmentExecutionBridge,
     _memory_options,
+    _load_verified_scenario,
     auto_bootstrap_enabled,
     generate_finding_explanation,
 )
@@ -48,6 +49,15 @@ def test_adaptive_driver_is_unavailable_without_openrouter_key(monkeypatch):
     adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
     assert adaptive["id"] == "llm-auto-attacker"
     assert adaptive["available"] is False
+
+
+def test_verified_scenario_driver_is_available_for_the_bundled_adapter():
+    verified = _load_verified_scenario()
+    assert verified is not None
+    drivers = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers
+    item = next(driver for driver in drivers if driver["id"] == "verified-scenario")
+    assert item["label"] == "Verified scenario"
+    assert item["available"] is True
 
 
 @pytest.mark.asyncio
