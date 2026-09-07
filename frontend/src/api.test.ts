@@ -32,6 +32,9 @@ describe("persisted backend contract",()=>{
  expect(mapEvent(event(1))).toMatchObject({content:"message 1",response:"response 1",status:"completed",operation:"operation-1"});
  expect(mapEvent(memoryEvent).memory).toMatchObject({change:"snapshot",after:"ONLY_MEMORY_SNAPSHOT"});
  });
+ it("keeps adaptive-search telemetry out of conversation events",()=>{
+  expect(mapEvent({sequence:1,type:"attacker.attempt",data:{message:"candidate"}})).toMatchObject({kind:"operation",operation:"attacker.attempt",content:"candidate"});
+ });
  it("drains 450 events using the actual API watermark and deduplicates cached pages",async()=>{
  const fetch=vi.fn(async(path:string)=>{const u=new URL(path,"http://local");const after=Number(u.searchParams.get("after"));return new Response(JSON.stringify({items:Array.from({length:Math.min(200,450-after)},(_,i)=>event(after+i+1)),last_event_sequence:450}),{headers:{"Content-Type":"application/json"}});});
  vi.stubGlobal("fetch",fetch);const rows=await drainEvents("real-run",[],450);

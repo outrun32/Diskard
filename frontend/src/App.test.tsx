@@ -64,6 +64,11 @@ describe("operator journey using actual API shapes",()=>{
   fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");if(u.pathname.endsWith("/events")){const started={...event(1),type:"operation.started",operation_id:"conversation",data:{message:question}};const completed={...event(2),type:"operation.completed",operation_id:"conversation",data:{message:question,output:{reply:"target answer"}}};return new Response(JSON.stringify({items:[started,completed],last_event_sequence:2}),{headers:{"Content-Type":"application/json"}});}return new Response(JSON.stringify({...run,last_event_sequence:2}),{headers:{"Content-Type":"application/json"}});});
   mount("/runs/real-run/trace");await waitFor(()=>expect(document.querySelectorAll(".chat-thread .chat-message-question")).toHaveLength(1));expect(document.querySelector(".chat-thread .chat-message-question p")?.textContent).toBe(question);
  });
+ it("keeps search telemetry out of the chat when it matches a delivered turn",async()=>{
+  const question="same generated question";
+  fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");if(u.pathname.endsWith("/events")){const attempt={...event(1),type:"attacker.attempt",data:{message:question}};const started={...event(2),type:"operation.started",operation_id:"conversation",data:{message:question}};const completed={...event(3),type:"operation.completed",operation_id:"conversation",data:{message:question,output:{reply:"target answer"}}};return new Response(JSON.stringify({items:[attempt,started,completed],last_event_sequence:3}),{headers:{"Content-Type":"application/json"}});}return new Response(JSON.stringify({...run,last_event_sequence:3}),{headers:{"Content-Type":"application/json"}});});
+  mount("/runs/real-run/trace");await waitFor(()=>expect(document.querySelectorAll(".chat-thread .chat-message-question")).toHaveLength(1));
+ });
  it("restores playback cursor, hides future events, and never posts",async()=>{
  mount("/runs/real-run/trace?mode=playback&event=2");expect(await screen.findByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();expect(screen.queryByRole("button",{name:/operation-3/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(await screen.findByRole("button",{name:/operation-3/})).toBeInTheDocument();

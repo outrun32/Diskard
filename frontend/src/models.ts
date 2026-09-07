@@ -52,8 +52,11 @@ export function mapEvent(value: unknown): TraceEvent {
   if (!Object.keys(memory).length && d.phase === "semantic_snapshot" && "facts" in output) {
     memory = {tier: "semantic", change: "snapshot", owner: r.actor_id, after: output.facts};
   }
-  const conversational = (type.includes("operation") || type === "attacker.attempt") && Boolean(d.message || d.reply || output.reply || output.response);
-  const operational = type.includes("operation") || type.startsWith("run.") || type === "executor.claimed" || type === "replay.resolved" || type.startsWith("cleanup.");
+  // `attacker.attempt` is orchestration telemetry: its message may be identical
+  // to a later target turn, but it is not a second chat message. Keep it in
+  // the operational timeline rather than rendering it in the conversation.
+  const conversational = type.includes("operation") && Boolean(d.message || d.reply || output.reply || output.response);
+  const operational = type.includes("operation") || type === "attacker.attempt" || type.startsWith("run.") || type === "executor.claimed" || type === "replay.resolved" || type.startsWith("cleanup.");
   const kind: TraceEvent["kind"] = type.includes("error") ? "error" : Object.keys(memory).length ? "memory" : type.includes("evidence") || type === "run.result" ? "evidence" : conversational ? "message" : operational ? "operation" : "message";
   const status = type.endsWith(".started") ? "started" : type.endsWith(".completed") ? "completed" : type.endsWith(".error") ? "failed" : undefined;
   const rawChange = String(memory.change ?? memory.action ?? "snapshot");
