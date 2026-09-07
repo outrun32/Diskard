@@ -226,6 +226,9 @@ uv build
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Report security issues through [SECURITY.md](./SECURITY.md).
 
 To connect another agent system or an existing test harness, follow the [integration guide](./docs/integrating-agent-systems.md). UI and report integrations should consume the sanitized [result schema](./docs/result-schema.md).
+Coding agents adding a connector should first load the repository skill at
+[`.agents/skills/diskard-agent-integration/SKILL.md`](./.agents/skills/diskard-agent-integration/SKILL.md)
+and use the integration guide as its detailed contract.
 
 ## License
 

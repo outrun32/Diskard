@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diskard agent integration"
+  short_description: "Connect an agent harness to Diskard core"
+  default_prompt: "Use $diskard-agent-integration to connect or update an agent-system adapter, target profile, evidence collector, or isolation boundary."

@@ -2,6 +2,20 @@
 
 This guide is the implementation contract for a developer—or a coding agent—adding a new target to Diskard. It describes the current API, including its limitations. The reference connector is an example, not part of Diskard core.
 
+Coding agents should begin with [`diskard-agent-integration`](../.agents/skills/diskard-agent-integration/SKILL.md). The skill is the short execution checklist; this document is the detailed contract and reference material it routes to.
+
+## 0. Fast path for a coding agent
+
+Before editing, answer these questions in the task notes:
+
+1. Is the target an HTTP API, an in-process Python harness, or an existing CLI/test runner?
+2. Which operations deliver input, commit/finalize state, retrieve later state, and observe tool effects?
+3. Which identities and credentials represent the writer, later reader, subject, and control cohort?
+4. Which mutable stores can affect a later run, and can they be snapshotted and restored exactly?
+5. Which evidence collectors are available, and which built-in attack family requires them?
+
+Then implement the smallest connector package, validate the YAML profile, and prove restore/verify on a disposable environment before attempting a live run. The generic CLI path is the supported integration surface; the durable web console is still target-specific.
+
 ## 1. Choose the test boundary
 
 Start by listing what the test environment can expose:
