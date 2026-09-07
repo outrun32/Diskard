@@ -53,10 +53,10 @@ function toneForOutcome(run: RunSummary): Particle["tone"] {
 }
 
 const TONE_COLOR: Record<Particle["tone"], string> = {
-  danger: "#f28a86",
-  clean: "#76d8a3",
-  pending: "#eac57b",
-  neutral: "#4da9e8",
+  danger: "#e0604c",
+  clean: "#6fbf8a",
+  pending: "#d9a544",
+  neutral: "#c99a3f",
 };
 
 function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel: string }) {
@@ -89,12 +89,12 @@ function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel
 
     const render = () => {
       const w = canvas.width, h = canvas.height;
-      ctx.fillStyle = "#090e15";
+      ctx.fillStyle = "#1a1815";
       ctx.fillRect(0, 0, w, h);
       const cx = w / 2, cy = h / 2;
       angle += 0.006;
 
-      ctx.strokeStyle = "#1d2a38";
+      ctx.strokeStyle = "#332f28";
       ctx.lineWidth = 1;
       for (let r = 40; r <= 150; r += 37) {
         ctx.beginPath();
@@ -103,7 +103,7 @@ function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel
       }
 
       const hasBreach = particles.current.some((p) => p.tone === "danger");
-      const sweepColor = hasBreach ? "242, 138, 134" : "77, 217, 239";
+      const sweepColor = hasBreach ? "224, 96, 76" : "230, 185, 90";
       const grad = ctx.createConicGradient(angle, cx, cy);
       grad.addColorStop(0, `rgba(${sweepColor}, 0.22)`);
       grad.addColorStop(0.14, "transparent");
@@ -115,8 +115,8 @@ function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel
 
       ctx.beginPath();
       ctx.arc(cx, cy, 13, 0, Math.PI * 2);
-      ctx.fillStyle = hasBreach ? "#f28a86" : "#77d9ef";
-      ctx.shadowColor = hasBreach ? "#f28a86" : "#77d9ef";
+      ctx.fillStyle = hasBreach ? "#e0604c" : "#e6b95a";
+      ctx.shadowColor = hasBreach ? "#e0604c" : "#e6b95a";
       ctx.shadowBlur = 18;
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -129,7 +129,7 @@ function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel
         ctx.beginPath();
         ctx.moveTo(cx, cy);
         ctx.lineTo(px, py);
-        ctx.strokeStyle = p.tone === "danger" ? "rgba(242, 138, 134, 0.35)" : "rgba(119, 217, 239, 0.12)";
+        ctx.strokeStyle = p.tone === "danger" ? "rgba(224, 96, 76, 0.35)" : "rgba(230, 185, 90, 0.14)";
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.beginPath();
@@ -139,7 +139,7 @@ function TopologyCanvas({ runs, activeLabel }: { runs: RunSummary[]; activeLabel
       });
 
       ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillStyle = hasBreach ? "#f28a86" : "#9cabb9";
+      ctx.fillStyle = hasBreach ? "#e0604c" : "#b0aca4";
       ctx.textAlign = "center";
       ctx.fillText(activeLabel.toUpperCase(), cx, cy + 32);
 
