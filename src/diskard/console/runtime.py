@@ -12,9 +12,9 @@ from uuid import uuid4
 
 from diskard.console.bridge import (
     ExecutionBridge,
-    InvestmentExecutionBridge,
     auto_bootstrap_enabled,
 )
+from diskard.console.probe_bridge import DispatchingExecutionBridge
 from diskard.console.contracts import (
     EventRecord,
     RunSpec,
@@ -84,7 +84,7 @@ class ConsoleRuntime:
         self.engine = None
         self.store: RunStore | None = None
         self.bridge: ExecutionBridge = (
-            bridge_factory() if bridge_factory is not None else InvestmentExecutionBridge()
+            bridge_factory() if bridge_factory is not None else DispatchingExecutionBridge()
         )
         self.lease = None
         self.started = False
