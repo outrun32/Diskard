@@ -50,7 +50,7 @@ describe("operator journey using actual API shapes",()=>{
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks/check-1"&&init?.method==="DELETE")).toBe(true));
  });
  it("renders long untrusted messages as text, filters events, and selects memory",async()=>{
- mount("/runs/real-run/trace");expect(await screen.findByRole("button",{name:/operation-3/})).toHaveAttribute("aria-pressed","true");const row=await screen.findByRole("button",{name:/memory.finalize/});await userEvent.click(row);expect(screen.getByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();
+ mount("/runs/real-run/trace");expect(await screen.findByRole("button",{name:/operation-3/})).toHaveAttribute("aria-pressed","true");expect(screen.getAllByText("Question").length).toBeGreaterThan(0);expect(screen.getAllByText("Answer").length).toBeGreaterThan(0);const row=await screen.findByRole("button",{name:/memory.finalize/});await userEvent.click(row);expect(screen.getByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();
  await userEvent.type(screen.getByLabelText("Search events"),"operation-1");expect(screen.queryByRole("button",{name:/memory.finalize/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:/operation-1/}));expect(document.querySelector("script")).toBeNull();expect(document.querySelector(".message-detail pre")?.textContent).toBe(hostile);
  });

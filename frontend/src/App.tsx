@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Bot,
   Braces,
   Check,
   CheckCircle2,
@@ -44,6 +45,7 @@ import {
   Terminal,
   Trash2,
   Unplug,
+  UserRound,
   X,
   XCircle,
   Zap,
@@ -307,6 +309,12 @@ function MemoryCard({ memory }: { memory: MemoryChange }) {
   return <div className="memory-card"><div className="memory-card-head"><div><span className="eyebrow">{memory.tier} {memory.collection ? `· ${memory.collection}` : ""}</span><strong>{memory.change === "added" ? "Record added" : memory.change === "changed" ? "Record changed" : memory.change === "removed" ? "Record removed" : memory.change === "snapshot" ? "State snapshot" : "Data unavailable"}</strong></div><span className={cn("memory-change", memory.change === "unavailable" && "memory-change-unknown")}>{memory.change}</span></div><div className="memory-meta"><span>scope <code>{memory.scope ?? "unknown"}</code></span><span>owner <code>{memory.owner ?? "unknown"}</code></span></div>{memory.before || memory.after ? <div className="diff-block">{memory.before && <div className="diff-line diff-before"><span>−</span><pre>{memory.before}</pre></div>}{memory.after && <div className="diff-line diff-after"><span>{memory.before ? "+" : ""}</span><pre>{memory.after}</pre></div>}</div> : memory.content ? <pre className="memory-content">{memory.content}</pre> : <div className="unknown-box"><CircleHelp size={15} /> Snapshot content unavailable</div>}<div className="memory-card-foot"><span>evidence {memory.evidenceId ?? "not linked"}</span><span>source {memory.sourceEventId ?? "unknown"}</span></div></div>;
 }
 
+function ChatTurn({event,selected,onSelect}:{event:TraceEvent;selected:boolean;onSelect:()=>void}) {
+ const paired=Boolean(event.content&&event.response);
+ const messages=[event.content&&{answer:event.direction==="output"&&!paired,text:event.content},event.response&&{answer:true,text:event.response}].filter(Boolean) as Array<{answer:boolean;text:string}>;
+ return <button type="button" className={cn("chat-turn",selected&&"chat-turn-selected")} aria-pressed={selected} aria-label={`Conversation turn ${event.sequence}: ${event.operation??event.kind}`} onClick={onSelect}>{messages.map((message,index)=>{const Icon=message.answer?Bot:UserRound;return <div className={cn("chat-message",message.answer?"chat-message-answer":"chat-message-question")} key={`${message.answer}-${index}`}><div className="chat-message-meta"><span className="chat-avatar"><Icon size={14}/></span><strong>{message.answer?"Target agent":"Red-team agent"}</strong><span>{message.answer?"Answer":"Question"}</span>{index===0&&<time>{formatDate(event.timestamp)}</time>}</div><p dir="auto">{message.text}</p></div>;})}{!messages.length&&<div className="chat-system-message">No message body was stored for this turn.</div>}</button>;
+}
+
 
 function TracePane({events,selectedId,onSelect,live,chatOnly=false,searchTerm,onSearchChange}:{events:TraceEvent[];selectedId?:string;onSelect:(event:TraceEvent)=>void;live:boolean;chatOnly?:boolean;searchTerm?:string;onSearchChange?:(value:string)=>void}){
  const [search,setSearch]=useState(""),[actor,setActor]=useState(""),[kind,setKind]=useState("");
@@ -319,10 +327,10 @@ function TracePane({events,selectedId,onSelect,live,chatOnly=false,searchTerm,on
  useEffect(()=>{const added=Math.max(0,events.length-previousCount.current);previousCount.current=events.length;if(following.current&&list.current){list.current.scrollTop=list.current.scrollHeight;}else if(added)setUnread(n=>n+added);},[events.length]);
  useEffect(()=>{if(chatOnly)list.current?.parentElement?.querySelector<HTMLInputElement>("input")?.setAttribute("aria-label","Search events");},[chatOnly]);
  useEffect(()=>{if(chatOnly&&traceSearch)traceSearch.setValue(search);},[chatOnly,search,traceSearch]);
- return <section className="trace-pane"><div className="pane-header"><div><h2>{chatOnly?"Agent chat":live ? "Live dialogue" : "Trace"}</h2>{live && <span className="live-pane-note">Updates automatically</span>}</div><span>{visible.length} / {source.length}</span></div><div className="trace-toolbar"><div className="trace-filter"><Search size={14}/><input aria-label={chatOnly?"Search chat":"Search events"} placeholder={chatOnly?"Search messages":"Search events"} value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Event actor" value={actor} onChange={e=>setActor(e.target.value)}><option value="">All actors</option>{[...new Set(source.map(e=>e.actor).filter(Boolean))].map(a=><option key={a}>{a}</option>)}</select>{!chatOnly&&<select aria-label="Event type" value={kind} onChange={e=>setKind(e.target.value)}><option value="">All types</option>{[...new Set(source.map(e=>e.kind))].map(k=><option key={k}>{k}</option>)}</select>}</div>
+ return <section className={cn("trace-pane",chatOnly&&"chat-pane")}><div className="pane-header"><div><h2>{chatOnly?"Agent chat":live ? "Live dialogue" : "Trace"}</h2>{live && <span className="live-pane-note">Updates automatically</span>}</div><span>{visible.length} / {source.length}</span></div><div className="trace-toolbar"><div className="trace-filter"><Search size={14}/><input aria-label={chatOnly?"Search chat":"Search events"} placeholder={chatOnly?"Search conversation":"Search events"} value={search} onChange={e=>setSearch(e.target.value)}/></div>{!chatOnly&&<select aria-label="Event actor" value={actor} onChange={e=>setActor(e.target.value)}><option value="">All actors</option>{[...new Set(source.map(e=>e.actor).filter(Boolean))].map(a=><option key={a}>{a}</option>)}</select>}{!chatOnly&&<select aria-label="Event type" value={kind} onChange={e=>setKind(e.target.value)}><option value="">All types</option>{[...new Set(source.map(e=>e.kind))].map(k=><option key={k}>{k}</option>)}</select>}</div>
  {(search||actor||kind)&&<Button onClick={()=>{setSearch("");setActor("");setKind("");}}>Clear filters</Button>}
- <div className="timeline-list" ref={list} onScroll={()=>{const el=list.current!;following.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;if(following.current)setUnread(0);}}>{visible.length?visible.map(e=><EventRow key={e.sequence} event={e} selected={e.id===selectedId} onSelect={()=>{following.current=false;onSelect(e);}}/>):<div className="trace-empty"><p>{source.length?(chatOnly?"No dialogue messages yet.":"No matches. Clear the filters."):(chatOnly?"Waiting for agent dialogue.":"No events yet.")}</p></div>}</div>
- <div className="trace-footer"><span>{chatOnly?"Messages":"Stored cursor"}: {chatOnly?source.length:events.at(-1)?.sequence??0}</span><Button onClick={()=>{following.current=true;setUnread(0);if(list.current)list.current.scrollTop=list.current.scrollHeight;}}>Latest{unread>0?" · new: "+unread:""}</Button></div></section>;
+ <div className={cn("timeline-list",chatOnly&&"chat-thread")} ref={list} onScroll={()=>{const el=list.current!;following.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;if(following.current)setUnread(0);}}>{visible.length?visible.map(e=>chatOnly?<ChatTurn key={e.sequence} event={e} selected={e.id===selectedId} onSelect={()=>{following.current=false;onSelect(e);}}/>:<EventRow key={e.sequence} event={e} selected={e.id===selectedId} onSelect={()=>{following.current=false;onSelect(e);}}/>):<div className="trace-empty"><p>{source.length?(chatOnly?"No dialogue matches your search.":"No matches. Clear the filters."):(chatOnly?"Waiting for the first question and answer.":"No events yet.")}</p></div>}</div>
+ <div className="trace-footer"><span>{chatOnly?"Turns":"Stored cursor"}: {chatOnly?source.length:events.at(-1)?.sequence??0}</span><Button onClick={()=>{following.current=true;setUnread(0);if(list.current)list.current.scrollTop=list.current.scrollHeight;}}>Latest{unread>0?" · new: "+unread:""}</Button></div></section>;
 }
 
 function keyEventTone(event: TraceEvent): "danger" | "warning" | "neutral" {
