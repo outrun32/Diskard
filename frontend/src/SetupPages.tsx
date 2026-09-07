@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ChevronDown, MoreHorizontal, Play, RefreshCw } from "lucide-react";
+import { ChevronDown, Info, MoreHorizontal, Play, RefreshCw } from "lucide-react";
 import { listProfiles, getProfile, saveProfile, validateTarget, deleteProfile } from "./api";
 import type { ProfileInput, Profile, ReadinessCheck } from "./types";
 import { useLanguage } from "./i18n";
+const cn = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
 export function Failure({error,retry}:{error:unknown;retry?:()=>void}){const {language}=useLanguage(),ru=language==="ru";return <div className="state-panel state-error" role="alert"><div><h2>{ru?"Не удалось получить данные":"Could not load data"}</h2><p>{error instanceof Error?error.message:ru?"Неизвестная ошибка":"Unknown error"}</p>{retry&&<button className="button button-secondary" onClick={retry}>{ru?"Повторить":"Retry"}</button>}</div></div>;}
 function Header({title,children}:{title:string;children?:React.ReactNode}){return <div className="page-header"><h1>{title}</h1>{children}</div>;}
 export function Checks({checks}:{checks:ReadinessCheck[]}){const {language}=useLanguage();const labels:Record<string,string>=language==="ru"?{ready:"Готово",blocked:"Заблокировано",optional:"Необязательно",unknown:"Не проверено",missing:"Не настроено"}:{ready:"Ready",blocked:"Blocked",optional:"Optional",unknown:"Not checked",missing:"Not configured"};return <div className="settings-checks">{checks.map(c=><div className="settings-check" key={c.id}><div><strong>{c.label||c.id}</strong><span>{c.reason||c.detail}</span></div><span>{labels[c.status]??c.status}</span></div>)}</div>;}
@@ -13,16 +14,17 @@ function ProfileCard({profile}:{profile:Profile}){
  const validate=useMutation({mutationFn:()=>validateTarget(profile.id)});
  const remove=useMutation({mutationFn:()=>deleteProfile(profile.id),onSuccess:()=>{void cache.invalidateQueries({queryKey:["profiles"]});void cache.invalidateQueries({queryKey:["setup"]});}});
  const confirmDelete=()=>{if(window.confirm("Delete this connection?"))remove.mutate();};
- const state=validate.isError?"error":validate.data?(validate.data.ready?"ready":"attention"):"unchecked";
- const stateLabel={error:"Check failed",ready:"Ready",attention:"Needs attention",unchecked:"Not checked"}[state];
+ const cached=profile.config.adapter_options?.deployment_status==="cached";
+ const state=cached?"cached":validate.isError?"error":validate.data?(validate.data.ready?"ready":"attention"):"unchecked";
+ const stateLabel={error:"Check failed",ready:"Ready",attention:"Needs attention",unchecked:"Not checked",cached:"Cached · adapter required"}[state];
  const actors=Object.entries(profile.actor_status??{});
- return <article className="target-profile-card">
+ return <article className={cn("target-profile-card",cached&&"target-profile-card-cached")}>
   <header className="target-summary">
    <div className="target-summary-main"><h2>{profile.name}</h2><div className="target-meta"><span>{profile.adapter}</span><code>{profile.config.base_url}</code></div></div>
    <span className={`target-connection-status target-connection-status-${state}`} aria-live="polite"><span className="target-status-dot" aria-hidden="true"/>{stateLabel}</span>
   </header>
   <div className="target-card-actions">
-   <Link className="button button-primary" to={"/runs/new?target="+encodeURIComponent(profile.id)}><Play size={15} aria-hidden="true"/>Run attack</Link>
+   {cached?<Link className="button button-ghost" to={"/runs/new?target="+encodeURIComponent(profile.id)}><Info size={15} aria-hidden="true"/>View in launcher</Link>:<Link className="button button-primary" to={"/runs/new?target="+encodeURIComponent(profile.id)}><Play size={15} aria-hidden="true"/>Run attack</Link>}
    <button className="button button-secondary" disabled={validate.isPending} onClick={()=>validate.mutate()}><RefreshCw className={validate.isPending?"spin":undefined} size={15} aria-hidden="true"/>{validate.isPending?"Checking…":"Check connection"}</button>
    <details className="target-actions-menu">
     <summary className="icon-button" aria-label="More actions"><MoreHorizontal size={18} aria-hidden="true"/></summary>
@@ -42,8 +44,15 @@ function ProfileCard({profile}:{profile:Profile}){
 export function TargetsPage(){
  const {language,t}=useLanguage(),ru=language==="ru";
  const q=useQuery({queryKey:["profiles"],queryFn:({signal})=>listProfiles(signal)});
+ const sorted=[...(q.data??[])].sort((a,b)=>{
+  const cachedA=a.config.adapter_options?.deployment_status==="cached"?1:0;
+  const cachedB=b.config.adapter_options?.deployment_status==="cached"?1:0;
+  if(cachedA!==cachedB)return cachedA-cachedB;
+  return a.name.localeCompare(b.name);
+ });
+ const readyCount=sorted.filter(p=>p.config.adapter_options?.deployment_status!=="cached").length;
  return <div><Header title={t("targets")}><Link className="button button-primary" to="/targets/new">Add target</Link></Header><p className="targets-intro">Connect a service, check access, and start an attack.</p>
- {q.isPending?<p role="status">{t("loadingTargets")}</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:q.data.length?<div className="profile-list">{q.data.map(p=><ProfileCard key={p.id} profile={p}/>)}</div>:<div className="state-panel"><h2>{ru?"Цели не подключены":"No targets connected"}</h2><p>{ru?"Добавьте URL цели, чтобы настроить атаку.":"Add a target URL to configure an attack."}</p></div>}</div>;
+ {q.isPending?<p role="status">{t("loadingTargets")}</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:sorted.length?<><p className="targets-summary">{readyCount} runnable · {sorted.length-readyCount} cached, adapter required</p><div className="profile-list">{sorted.map(p=><ProfileCard key={p.id} profile={p}/>)}</div></>:<div className="state-panel"><h2>{ru?"Цели не подключены":"No targets connected"}</h2><p>{ru?"Добавьте URL цели, чтобы настроить атаку.":"Add a target URL to configure an attack."}</p></div>}</div>;
 }
 const blank:ProfileInput={schema_version:1,id:"",name:"",adapter:"investment-stand",base_url:"",actors:{},lifecycle:{},adapter_options:{}};
 function ProfileForm({initial,editing}:{initial:ProfileInput;editing:boolean}){
