@@ -167,6 +167,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         {nav.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to==="/"} aria-label={label} title={collapsed?label:undefined} className={({ isActive }) => cn("nav-link", isActive && "nav-link-active")}><Icon size={17} strokeWidth={1.8} /><span>{label}</span></NavLink>)}
       </nav>
       <div className="sidebar-bottom">
+        {!collapsed && <div className="sidebar-concepts"><span className="nav-label">🐢 Черепашки атакуют</span><a href="/concepts/soc-dashboard.html" target="_blank" rel="noreferrer">SOC dashboard</a><a href="/concepts/attack-graph.html" target="_blank" rel="noreferrer">Attack graph</a><a href="/concepts/attack-graph-v2.html" target="_blank" rel="noreferrer">Attack graph v2</a></div>}
         <button type="button" className="sidebar-toggle" onClick={()=>setCollapsed(value=>!value)} aria-label={collapsed?t("expand"):t("collapse")} title={collapsed?t("expand"):t("collapse")}>
           {collapsed?<ChevronRight size={17}/>:<ChevronLeft size={17}/>}
         </button>

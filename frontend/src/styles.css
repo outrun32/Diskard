@@ -407,6 +407,10 @@ h1,h2,h3,p,code,pre,dd { overflow-wrap: anywhere; }
 .sidebar-collapsed .sidebar-bottom { padding-inline: 0; }
 .app-sidebar-collapsed .main-shell { width: calc(100% - 72px); margin-left: 72px; }
 .sidebar-bottom { display: block; }
+.sidebar-concepts { display: grid; gap: 6px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.sidebar-concepts .nav-label { padding: 0 0 4px; }
+.sidebar-concepts a { color: var(--ink-muted); font-size: 13px; text-decoration: none; padding: 3px 4px; border-radius: 5px; }
+.sidebar-concepts a:hover { color: var(--ink); background: rgba(255,255,255,.05); }
 .sidebar-toggle { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ink-muted); background: transparent; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 14px; }
 .sidebar-toggle:hover { color: var(--ink); background: rgba(255,255,255,.05); }
 .launch-page { width: min(860px,100%); margin-inline: auto; }
