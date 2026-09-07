@@ -562,7 +562,7 @@ class ConsoleRuntime:
             # Detailed operation errors have already been redacted by the bridge.
             # Unknown exceptions may contain unlabelled provider credentials.
             detail = str(redact(str(exc))).strip()
-            error = f"Execution failed ({type(exc).__name__})"
+            error = f"Execution error ({type(exc).__name__})"
             if detail:
                 error += f": {detail}"
             log.exception("Run execution failed", extra={"run_id": run_id})

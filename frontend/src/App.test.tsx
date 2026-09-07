@@ -34,11 +34,16 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();clients.splice(0).forEach(c=>c.clear());vi.unstubAllGlobals();});
 describe("operator journey using actual API shapes",()=>{
- it("shows real history and filters loaded records",async()=>{
- mount("/runs");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.queryByText(/Демонстрационный режим/)).not.toBeInTheDocument();expect(screen.queryByRole("group",{name:"Language"})).not.toBeInTheDocument();
- expect(screen.getByRole("link",{name:"Diskard home"})).toHaveAttribute("href","/");
- expect(screen.getByRole("button",{name:"New run"})).toBeInTheDocument();
- await userEvent.type(screen.getByLabelText("Search runs"),"missing");expect(await screen.findByText("No matches")).toBeInTheDocument();
+ it("makes the run ID in the breadcrumb open the run trace",async()=>{
+  mount("/runs/real-run/results");const runId=await screen.findByRole("link",{name:"Open run real-run"});await userEvent.click(runId);expect(await screen.findByRole("button",{name:/operation-3/})).toBeInTheDocument();
+ });
+ it("makes a child run ID open its full attack",async()=>{
+  const childRun={...run,config_snapshot:{...run.config_snapshot,options:{...run.config_snapshot.options,check_id:"check-42"}}};
+  fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");const data=u.pathname.endsWith("/events")?{items:[],last_event_sequence:0}:childRun;return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});});
+  mount("/runs/child-run/results");const link=await screen.findByRole("link",{name:"Open full attack check-42"});expect(link).toHaveAttribute("href","/checks/check-42");
+ });
+ it("shows full attacks without a duplicate individual run history",async()=>{
+  mount("/runs");expect(await screen.findByRole("button",{name:"New run"})).toBeInTheDocument();expect(screen.queryByText("Run history")).not.toBeInTheDocument();expect(screen.queryByLabelText("Search runs")).not.toBeInTheDocument();
  });
  it("renames and bulk deletes full attacks without an arrow action",async()=>{
  checkRows=[{id:"check-1",profile_id:"investment-local",profile_version:3,name:"Original assessment",attacks:["policy-test"],created_at:"2026-09-07T00:00:00Z",status:"completed"}];
@@ -54,11 +59,23 @@ describe("operator journey using actual API shapes",()=>{
  await userEvent.type(screen.getByLabelText("Search events"),"operation-1");expect(screen.queryByRole("button",{name:/memory.finalize/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:/operation-1/}));expect(document.querySelector("script")).toBeNull();expect(document.querySelector(".message-detail pre")?.textContent).toBe(hostile);
  });
+ it("does not show the started copy when a completed turn contains the same user message",async()=>{
+  const question="same user question";
+  fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");if(u.pathname.endsWith("/events")){const started={...event(1),type:"operation.started",operation_id:"conversation",data:{message:question}};const completed={...event(2),type:"operation.completed",operation_id:"conversation",data:{message:question,output:{reply:"target answer"}}};return new Response(JSON.stringify({items:[started,completed],last_event_sequence:2}),{headers:{"Content-Type":"application/json"}});}return new Response(JSON.stringify({...run,last_event_sequence:2}),{headers:{"Content-Type":"application/json"}});});
+  mount("/runs/real-run/trace");await waitFor(()=>expect(document.querySelectorAll(".chat-thread .chat-message-question")).toHaveLength(1));expect(document.querySelector(".chat-thread .chat-message-question p")?.textContent).toBe(question);
+ });
  it("restores playback cursor, hides future events, and never posts",async()=>{
  mount("/runs/real-run/trace?mode=playback&event=2");expect(await screen.findByText("ONLY_MEMORY_SNAPSHOT")).toBeInTheDocument();expect(screen.queryByRole("button",{name:/operation-3/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(await screen.findByRole("button",{name:/operation-3/})).toBeInTheDocument();
  expect(fetchMock.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
  });
+ it("reveals playback markers while moving through the full recording",async()=>{
+  const finding={...event(3),type:"run.result",data:{verdict:"vulnerable",details:{cross_identity:true}}};
+  const cleanup={...event(4),type:"cleanup.completed",operation_id:"cleanup"};
+  fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");const data=u.pathname.endsWith("/events")?{items:[event(1),memoryEvent,finding,cleanup],last_event_sequence:4}:run;return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});});
+mount("/runs/real-run/trace?mode=playback&event=1");const position=await screen.findByLabelText("Playback position");await waitFor(()=>expect(position).toHaveAttribute("max","3"));expect(document.querySelector(".playback-track-rail")).toBeInTheDocument();expect(document.querySelectorAll(".playback-marker")).toHaveLength(3);
+  await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(document.querySelectorAll(".playback-marker")).toHaveLength(3);await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(document.querySelectorAll(".playback-marker")).toHaveLength(3);expect(screen.getByRole("button",{name:"Next event"})).toBeEnabled();await userEvent.click(screen.getByRole("button",{name:"Next event"}));expect(screen.getByRole("button",{name:"Next event"})).toBeDisabled();
+  });
  it("launches with catalog values and backend-supported field names",async()=>{
  mount("/runs/new?target=investment-local");await screen.findByRole("option",{name:/Test target/});expect(await screen.findByRole("combobox",{name:"Attack method"})).toHaveValue("full");expect(screen.getByRole("combobox",{name:"Execution mode"})).toHaveValue("template");await waitFor(()=>expect(screen.getByRole("button",{name:"Run attack"})).toBeEnabled());await userEvent.click(screen.getByRole("button",{name:"Run attack"}));
  await waitFor(()=>expect(fetchMock.mock.calls.some(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")).toBe(true));
@@ -72,10 +89,10 @@ describe("operator journey using actual API shapes",()=>{
  const call=fetchMock.mock.calls.find(([url,init])=>url==="/api/v1/checks"&&init?.method==="POST")!;
  expect(JSON.parse(String(call[1]?.body))).toMatchObject({driver:"llm-auto-attacker"});
  });
- it("highlights findings and generates their explanation on demand",async()=>{
+ it("highlights findings and preloads their AI explanation",async()=>{
  const findingRun={...run,summary:{verdict:"observed",message:"Unsafe memory persisted"},finding:{confidence:"proven"}};
- fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");const data=u.pathname.endsWith("/events")?{items:[],last_event_sequence:0}:u.pathname.endsWith("/finding/explanation")?{explanation:"The model identified unsafe cross-user memory persistence."}:findingRun;return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});});
- mount("/runs/real-run/results");expect(await screen.findByText("Security finding detected")).toBeInTheDocument();const info=screen.getByRole("button",{name:"Explain this finding"});await userEvent.hover(info);expect(await screen.findByText("The model identified unsafe cross-user memory persistence.")).toBeInTheDocument();
+ fetchMock.mockImplementation(async(path:string)=>{const u=new URL(path,"http://local");const data=u.pathname.endsWith("/events")?{items:[],last_event_sequence:0}:u.pathname.endsWith("/finding/explanation")?{explanation:"Issue: The model identified unsafe cross-user memory persistence. Evidence: The stored finding supports cross-user exposure. Recommendation: Scope memory reads and writes by authenticated user."}:findingRun;return new Response(JSON.stringify(data),{headers:{"Content-Type":"application/json"}});});
+ mount("/runs/real-run/results");expect(await screen.findByText("Security finding detected")).toBeInTheDocument();await waitFor(()=>expect(fetchMock.mock.calls.some(([path])=>String(path).endsWith("/finding/explanation"))).toBe(true));expect(await screen.findByText(/Issue: The model identified unsafe cross-user memory persistence/)).toBeInTheDocument();
  });
  it("keeps target configuration secondary and exposes the operational path",async()=>{
  mount("/targets");expect(await screen.findByText("Test target")).toBeInTheDocument();expect(screen.getByText("Not checked")).toBeInTheDocument();

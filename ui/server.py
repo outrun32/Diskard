@@ -1240,8 +1240,13 @@ async def explain_durable_finding(request: Request, run_id: str):
     run = _console_runtime().require_store().run(run_id, include_events=False)
     if run is None:
         raise HTTPException(404, "unknown run")
-    if run.get("finding") is None:
-        raise HTTPException(409, "run has no finding to explain")
+    if (
+        run.get("finding") is None
+        and not run.get("error")
+        and run.get("raw_engine_result") is None
+        and run.get("presentation") is None
+    ):
+        raise HTTPException(409, "run has no finding or stored result to explain")
     from diskard.console.bridge import BridgeError, generate_finding_explanation
 
     try:

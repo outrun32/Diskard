@@ -39,9 +39,13 @@ export function LaunchCheckPage() {
 
 type Check = {id:string;profile_id:string;profile_version:number;name?:string|null;attacks:string[];runs:unknown[]};
 export function FindingInfo({runId}:{runId:string}) {
-  const explanation=useMutation({mutationFn:()=>explainFinding(runId)});
-  const load=()=>{if(explanation.isIdle)explanation.mutate();};
-  return <span className="finding-info" onMouseEnter={load}><button type="button" aria-label="Explain this finding" onFocus={load}><Info size={15}/></button><span className="finding-tooltip" role="status">{explanation.isPending?<><LoaderCircle className="spin" size={14}/> Asking the model…</>:explanation.isError?"Explanation unavailable. Try again later.":explanation.data??"Hover or focus to generate an explanation."}</span></span>;
+  const explanation=useQuery({
+    queryKey:["finding-explanation",runId],
+    queryFn:()=>explainFinding(runId),
+    staleTime:Infinity,
+    retry:1,
+  });
+  return <span className="finding-info" aria-busy={explanation.isPending}><button type="button" aria-label="Explain this finding"><Info size={15}/></button><span className="finding-tooltip" role="status">{explanation.isPending?<><LoaderCircle className="spin" size={14}/> Generating AI explanation…</>:explanation.isError?"AI explanation unavailable.":explanation.data??"AI explanation pending."}</span></span>;
 }
 export function CheckDetailPage() {
   const {t}=useLanguage();
@@ -55,6 +59,6 @@ export function CheckDetailPage() {
     <progress className="check-progress" aria-label="Completed attacks" value={done} max={runs.length||1}/>
     <p>{active?"Attacks run sequentially. You can close this page and return later.":"Full attack finished. Review each trace, including execution failures."}</p>
     {cancel.isError&&<Failure error={cancel.error}/>}
-    <div className="overview-results check-run-list">{runs.map(run=>{const found=run.outcome==="vulnerable"||run.outcome==="observed",executionError=run.status==="failed"||run.status==="interrupted";return <div className={`overview-run check-run ${found?"check-run-finding":""} ${executionError?"check-run-error":""}`} key={run.id}><Link className="check-run-link" to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{activeStatus(run.status)?"Running":run.status==="completed"?"Completed":run.status==="cancelled"?"Cancelled":run.status==="failed"?"Execution error":"Interrupted"}</span><small>{run.outcome==="vulnerable"?"Confirmed finding":run.outcome==="observed"?"Finding detected":run.outcome==="clean"?"No finding":executionError?"Attack did not finish":"No verdict"}</small></div></Link>{found&&<FindingInfo runId={run.id}/>}</div>;})}</div>
+    <div className="overview-results check-run-list">{runs.map(run=>{const found=run.outcome==="vulnerable"||run.outcome==="observed",executionError=run.status==="failed"||run.status==="interrupted",live=run.status==="running"||run.status==="cancelling",queued=run.status==="queued";return <div className={`overview-run check-run ${found?"check-run-finding":""} ${executionError?"check-run-error":""} ${live?"check-run-active":""}`} key={run.id}><Link className="check-run-link" to={`/runs/${run.id}/trace`}><div><strong>{run.family}</strong><span>{run.shortId}</span></div><div><span>{live?(run.status==="cancelling"?"Stopping":"Running"):queued?"Queued":run.status==="completed"?"Completed":run.status==="cancelled"?"Cancelled":run.status==="failed"?"Execution error":"Interrupted"}</span><small>{run.outcome==="vulnerable"?"Confirmed finding":run.outcome==="observed"?"Finding detected":run.outcome==="clean"?"No finding":queued?"Waiting for turn":executionError?"Attack did not finish":"No verdict"}</small></div></Link>{(found||executionError)&&<FindingInfo runId={run.id}/>}</div>;})}</div>
   </div>;
 }

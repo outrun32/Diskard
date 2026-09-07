@@ -19,6 +19,7 @@ export function mapRun(value: unknown): RunSummary {
   const status = ["queued","running","cancelling","completed","failed","cancelled","interrupted","imported"].includes(String(r.status)) ? r.status as ExecutionStatus : "unknown";
   const started = textValue(r.started_at ?? r.submitted_at ?? r.created_at), finished = textValue(r.finished_at ?? r.completed_at);
   const elapsed = started && finished ? Date.parse(finished) - Date.parse(started) : NaN;
+  const fixture = r.origin === "test" || String(profile.adapter ?? "").toLowerCase() === "fixture" || String(config.attack ?? r.scenario_version ?? "").toLowerCase() === "fixture";
   return {
     id, shortId: id.length > 16 ? id.slice(0,8) + "…" + id.slice(-4) : id,
     title: textValue(r.title ?? summary.scenario ?? config.attack ?? r.scenario_version) ?? "Без названия",
@@ -35,7 +36,7 @@ export function mapRun(value: unknown): RunSummary {
     eventCount: typeof r.event_count === "number" ? r.event_count : undefined,
     checkId: textValue(record(config.options).check_id),
     parentRunId: textValue(r.parent_run_id), imported: r.origin === "imported" || r.origin === "cli-import" || r.mode === "legacy-import",
-    demo: r.demo === true || summary.synthetic === true,
+    demo: r.demo === true || summary.synthetic === true || fixture,
   };
 }
 export function mapEvent(value: unknown): TraceEvent {

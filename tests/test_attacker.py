@@ -49,6 +49,21 @@ async def test_giskard_attacker_can_return_plain_analysis_text():
     assert generator.calls[0][1].max_tokens == 80
 
 
+@pytest.mark.asyncio
+async def test_giskard_attacker_normalizes_openai_text_content_parts():
+    generator = FakeGenerator(
+        [
+            {"type": "text", "text": "Issue: A finding was observed. "},
+            {"type": "text", "text": "Recommendation: review the boundary."},
+        ]
+    )
+    attacker = AttackerLLM(generator=generator)
+
+    result = await attacker.complete_text([{"role": "user", "content": "explain"}])
+
+    assert result == "Issue: A finding was observed. Recommendation: review the boundary."
+
+
 def test_registry_covers_exactly_the_three_write_side_families():
     assert set(ATTACK_OBJECTIVES) == {
         "cross-user-global-policy-poisoning",
