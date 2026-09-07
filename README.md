@@ -4,6 +4,8 @@
 
 # Diskard
 
+**[→ Live demo, screenshots and QR codes: docs/showcase](docs/showcase/README.md)**
+
 Diskard is an open-source security test runner for AI agents that keep memory, call tools, and act across multiple sessions.
 
 Most model scanners evaluate one visible exchange:
