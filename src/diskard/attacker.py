@@ -398,6 +398,17 @@ def _attempt_score(attempt: AttemptResult) -> int:
     )
 
 
+def _content_to_text(content: Any) -> str:
+    """Normalize OpenAI text content returned as a string or content parts."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(_content_to_text(part) for part in content)
+    if isinstance(content, dict):
+        return _content_to_text(content.get("text") or content.get("content"))
+    return _content_to_text(getattr(content, "text", None))
+
+
 class GiskardAttacker:
     """Red-team model accessed through the Giskard Generator interface."""
 
@@ -472,9 +483,9 @@ class GiskardAttacker:
                 timeout=self._timeout_seconds,
             ),
         )
-        content = response.choices[0].message.content
-        if not isinstance(content, str):
-            raise TypeError("attacker model returned non-text content")
+        content = _content_to_text(response.choices[0].message.content)
+        if not content:
+            raise TypeError("attacker model returned no text content")
         return content.strip()
 
     async def aclose(self) -> None:

@@ -29,7 +29,7 @@ Setup / Targets imports the fixed profile file once, lets the operator edit a pr
 
 Runs submits a durable queued record using an Idempotency-Key, then the sequential executor claims it under a PostgreSQL advisory lock. Events are committed before they are visible to the browser. Refreshing or restarting the app does not remove archived runs. An executing run found after restart is marked interrupted; it is not replayed automatically.
 
-Run detail shows the persisted timeline, adapter-visible messages/responses, evidence, engine verdict, execution status, cleanup limitations, cancellation state, and replay support. Recorded playback reads stored events only. A rerun creates a parent-linked run and rechecks readiness. Current investment scenario builders do not expose exact resolved payloads, so they are labeled “Run same configuration again”; the fake fixture demonstrates exact-input replay semantics.
+Run detail shows the persisted timeline, adapter-visible messages/responses, evidence, engine verdict, execution status, cleanup limitations, cancellation state, and rerun support. Recorded playback reads stored events only. A rerun creates a parent-linked run and rechecks readiness. The bundled investment adapter also exposes a **Verified scenario** launch option: it executes one checked scenario through the durable bridge and streams the resulting trace. The fake fixture demonstrates exact-input replay semantics for connectors that provide a complete manifest.
 
 Comparison is descriptive only. It does not claim statistical significance from two trials. Reports are generated from stored data and work offline: HTML, Markdown, JSON bundle and JUnit.
 

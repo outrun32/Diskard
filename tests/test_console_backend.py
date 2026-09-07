@@ -11,7 +11,9 @@ from diskard.console.bridge import (
     FakeExecutionBridge,
     InvestmentExecutionBridge,
     _memory_options,
+    _load_verified_scenario,
     auto_bootstrap_enabled,
+    generate_finding_explanation,
 )
 from diskard.console.contracts import EventRecord, RunSpec, TargetProfile
 from diskard.console.redaction import REDACTED, redact
@@ -39,6 +41,54 @@ def test_adaptive_driver_is_available_for_openrouter_attacker(monkeypatch):
     adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
     assert adaptive["id"] == "llm-auto-attacker"
     assert adaptive["available"] is True
+
+
+def test_adaptive_driver_is_unavailable_without_openrouter_key(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
+    assert adaptive["id"] == "llm-auto-attacker"
+    assert adaptive["available"] is False
+
+
+def test_verified_scenario_driver_is_available_for_the_bundled_adapter():
+    verified = _load_verified_scenario()
+    assert verified is not None
+    drivers = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers
+    item = next(driver for driver in drivers if driver["id"] == "verified-scenario")
+    assert item["label"] == "Verified scenario"
+    assert item["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_finding_explanation_accepts_stored_execution_errors(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "configured")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    class FakeAttacker:
+        @classmethod
+        def from_config(cls, _config):
+            return cls()
+
+        async def complete_text(self, messages, **_kwargs):
+            assert "401 Unauthorized" in messages[1]["content"]
+            assert "execution failure" in messages[0]["content"]
+            return "Issue: The target rejected the request. Evidence: The stored run contains HTTP 401. Recommendation: refresh the target credentials."
+
+        async def aclose(self):
+            return None
+
+    monkeypatch.setattr("diskard.attacker.GiskardAttacker", FakeAttacker)
+    explanation = await generate_finding_explanation(
+        {
+            "status": "failed",
+            "error": "401 Unauthorized",
+            "summary": {"verdict": "unknown"},
+            "raw_engine_result": {"error": "401 Unauthorized"},
+        }
+    )
+
+    assert explanation.startswith("Issue: The target rejected")
 
 
 def test_memory_mapping_accepts_nested_json_and_defaults_collections():

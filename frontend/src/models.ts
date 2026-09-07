@@ -19,6 +19,7 @@ export function mapRun(value: unknown): RunSummary {
   const status = ["queued","running","cancelling","completed","failed","cancelled","interrupted","imported"].includes(String(r.status)) ? r.status as ExecutionStatus : "unknown";
   const started = textValue(r.started_at ?? r.submitted_at ?? r.created_at), finished = textValue(r.finished_at ?? r.completed_at);
   const elapsed = started && finished ? Date.parse(finished) - Date.parse(started) : NaN;
+  const fixture = r.origin === "test" || String(profile.adapter ?? "").toLowerCase() === "fixture" || String(config.attack ?? r.scenario_version ?? "").toLowerCase() === "fixture";
   return {
     id, shortId: id.length > 16 ? id.slice(0,8) + "…" + id.slice(-4) : id,
     title: textValue(r.title ?? summary.scenario ?? config.attack ?? r.scenario_version) ?? "Без названия",
@@ -35,7 +36,7 @@ export function mapRun(value: unknown): RunSummary {
     eventCount: typeof r.event_count === "number" ? r.event_count : undefined,
     checkId: textValue(record(config.options).check_id),
     parentRunId: textValue(r.parent_run_id), imported: r.origin === "imported" || r.origin === "cli-import" || r.mode === "legacy-import",
-    demo: r.demo === true || summary.synthetic === true,
+    demo: r.demo === true || summary.synthetic === true || fixture,
   };
 }
 export function mapEvent(value: unknown): TraceEvent {
@@ -51,8 +52,11 @@ export function mapEvent(value: unknown): TraceEvent {
   if (!Object.keys(memory).length && d.phase === "semantic_snapshot" && "facts" in output) {
     memory = {tier: "semantic", change: "snapshot", owner: r.actor_id, after: output.facts};
   }
-  const conversational = (type.includes("operation") || type === "attacker.attempt") && Boolean(d.message || d.reply || output.reply || output.response);
-  const operational = type.includes("operation") || type.startsWith("run.") || type === "executor.claimed" || type === "replay.resolved" || type.startsWith("cleanup.");
+  // `attacker.attempt` is orchestration telemetry: its message may be identical
+  // to a later target turn, but it is not a second chat message. Keep it in
+  // the operational timeline rather than rendering it in the conversation.
+  const conversational = type.includes("operation") && Boolean(d.message || d.reply || output.reply || output.response);
+  const operational = type.includes("operation") || type === "attacker.attempt" || type.startsWith("run.") || type === "executor.claimed" || type === "replay.resolved" || type.startsWith("cleanup.");
   const kind: TraceEvent["kind"] = type.includes("error") ? "error" : Object.keys(memory).length ? "memory" : type.includes("evidence") || type === "run.result" ? "evidence" : conversational ? "message" : operational ? "operation" : "message";
   const status = type.endsWith(".started") ? "started" : type.endsWith(".completed") ? "completed" : type.endsWith(".error") ? "failed" : undefined;
   const rawChange = String(memory.change ?? memory.action ?? "snapshot");

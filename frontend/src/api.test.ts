@@ -15,6 +15,12 @@ describe("persisted backend contract",()=>{
  const r=mapDetail(run);expect(r.target).toBe("Test target");expect(r.family).toBe("policy-test");expect(r.outcome).toBe("clean");expect(r.status).toBe("completed");expect(r.config.budget).toBe(6);expect(r.targetVersion).toBe("3");expect(r.resultSummary).toBe("Original engine message");expect(r.replay.rerun).toBe(true);
  expect(mapRun({...run,status:"future-status",summary:{}})).toMatchObject({status:"unknown",outcome:"unknown"});
  });
+ it("recognizes legacy fixture runs as synthetic data",()=>{
+  expect(mapRun({...run,origin:"test",config_snapshot:{...run.config_snapshot,profile:{name:"Fixture target",adapter:"fixture"}}})).toMatchObject({demo:true});
+ });
+ it("marks legacy fixture runs as synthetic so they stay out of reports",()=>{
+  expect(mapRun({...run,origin:"test",config_snapshot:{...run.config_snapshot,profile:{name:"Fixture target",adapter:"fixture"}}})).toMatchObject({demo:true});
+ });
   it("prefers stored operation snapshots while retaining the presentation contract",()=>{
    const detail=mapDetail({...run,events:[{sequence:2,type:"operation.completed",operation_id:"snapshot_policy",data:{phase:"snapshot_policy",output:{policy:[{policy_id:"p1"}]}}}],summary:{...run.summary,presentation:{schema_version:1,timeline:[{id:"run:W2",sequence:0,type:"memory_persisted",source:"memory",phase:"persistence",status:"inferred",outcome:true,summary:"Persisted",data:{stage:"W2_persisted"}}],stages:{W2_persisted:true,E3_externalized:false,E1_retrieved:null},attempts:[{attempt:1,stage_verdicts:{W2_persisted:true},observations:[],failure_reason:"adopted_without_terminal_effect",allowed_adaptations:["trigger"]}],metrics:{},isolation:{enabled:true,verified:true}}}});
    expect(detail.stages.map(stage=>stage.status)).toEqual(["passed","failed","unknown"]);
@@ -25,6 +31,9 @@ describe("persisted backend contract",()=>{
  it("preserves both input and output, operation identity and memory snapshots",()=>{
  expect(mapEvent(event(1))).toMatchObject({content:"message 1",response:"response 1",status:"completed",operation:"operation-1"});
  expect(mapEvent(memoryEvent).memory).toMatchObject({change:"snapshot",after:"ONLY_MEMORY_SNAPSHOT"});
+ });
+ it("keeps adaptive-search telemetry out of conversation events",()=>{
+  expect(mapEvent({sequence:1,type:"attacker.attempt",data:{message:"candidate"}})).toMatchObject({kind:"operation",operation:"attacker.attempt",content:"candidate"});
  });
  it("drains 450 events using the actual API watermark and deduplicates cached pages",async()=>{
  const fetch=vi.fn(async(path:string)=>{const u=new URL(path,"http://local");const after=Number(u.searchParams.get("after"));return new Response(JSON.stringify({items:Array.from({length:Math.min(200,450-after)},(_,i)=>event(after+i+1)),last_event_sequence:450}),{headers:{"Content-Type":"application/json"}});});
