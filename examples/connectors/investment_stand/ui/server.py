@@ -29,6 +29,9 @@ from pydantic import BaseModel
 ROOT = Path(__file__).resolve().parents[4]
 EXAMPLES_DIR = ROOT / "examples"
 IDENTITIES_CACHE = EXAMPLES_DIR / ".identities.json"
+CONNECTOR_CONFIG = EXAMPLES_DIR / "connectors" / "investment_stand" / "diskard.yaml"
+RECORDED_PRESENTATION = Path(__file__).parent / "fixtures" / "confirmed-lifecycle.json"
+RECORDED_REPLAY = Path(__file__).parent.parent / "demo" / "confirmed-replay.json"
 
 load_dotenv(ROOT / ".env")
 
@@ -49,6 +52,7 @@ from diskard.checks.recommendation_shift import (  # noqa: E402
     TARGET_TICKER,
 )
 from diskard.cli import KNOWN_ATTACKS, _build_scenario  # noqa: E402
+from diskard.config import load_config  # noqa: E402
 from diskard.report import confidence_for  # noqa: E402
 from diskard.scenarios.cross_user_policy_poisoning import (  # noqa: E402
     build_cross_user_policy_poisoning_scenario,
@@ -60,6 +64,7 @@ from examples.connectors.investment_stand.backend import (  # noqa: E402
     SemanticMemoryEvidence,
     StandClient,
 )
+from examples.connectors.investment_stand.connector import create_isolation  # noqa: E402
 from examples.connectors.investment_stand.identities import refresh_access_token  # noqa: E402
 from examples.connectors.investment_stand.identity import KeycloakBootstrap  # noqa: E402
 from examples.connectors.investment_stand.legacy_dispatch import make_dispatch  # noqa: E402
@@ -185,6 +190,8 @@ class Ctx:
     semantic: SemanticMemoryEvidence
     attacker: AttackerLLM | None
     identities: dict[str, Actor]
+    isolation: Any
+    attacker_info: dict[str, Any]
 
 
 ctx = Ctx()
@@ -218,8 +225,27 @@ async def lifespan(app: FastAPI):
     ctx.mongo = MongoEvidence()
     ctx.invest = InvestServerEvidence()
     ctx.semantic = SemanticMemoryEvidence()
-    ctx.attacker = AttackerLLM() if os.environ.get("OPENAI_API_KEY") else None
+    config = load_config(CONNECTOR_CONFIG)
+    provider = config.attacker.provider
+    configured_model = (
+        os.environ.get("ATTACKER_MODEL", provider.model) if provider is not None else None
+    )
+    ctx.attacker = None
+    ctx.attacker_info = {
+        "available": False,
+        "provider": provider.type if provider is not None else None,
+        "name": provider.name if provider is not None else None,
+        "model": configured_model,
+        "error": None,
+    }
+    if provider is not None and os.environ.get(provider.api_key_env):
+        try:
+            ctx.attacker = AttackerLLM.from_config(config.attacker)
+            ctx.attacker_info["available"] = True
+        except Exception as exc:  # noqa: BLE001 -- expose only the safe exception class
+            ctx.attacker_info["error"] = type(exc).__name__
     ctx.identities = {}
+    ctx.isolation = create_isolation({})
     yield
     await ctx.stand.aclose()
     await ctx.invest.aclose()
@@ -239,7 +265,7 @@ async def _ensure_identities() -> dict[str, Actor]:
 
 def _require_attacker() -> AttackerLLM:
     if ctx.attacker is None:
-        raise RuntimeError("LLM auto-attacker requires OPENAI_API_KEY")
+        raise RuntimeError("configured model provider is unavailable")
     return ctx.attacker
 
 
@@ -460,7 +486,14 @@ async def _auto_attack_body(job: Job, max_attempts: int) -> dict:
     return {"succeeded": True, "finding": payload, "campaign": campaign.to_dict()}
 
 
-async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
+async def _live_run_body(
+    job: Job,
+    *,
+    attack: str,
+    driver: str,
+    replay_message: str | None = None,
+    memory_policy: str = "vulnerable",
+) -> dict:
     """Job body for the live console -- reuses cli._build_scenario (same
     attack-family dispatch the CLI uses) and checks/*.py's own verdicts via
     report.confidence_for, wrapping dispatch so the frontend can watch the
@@ -513,7 +546,10 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
         victim_cus=VICTIM_CUS,
         data_subject_cus=DATA_SUBJECT_CUS,
         control_cus=CONTROL_CUS,
+        memory_policy=memory_policy,
     )
+    if replay_message is not None:
+        args.poison_message = replay_message
 
     if driver == "llm-auto-attacker":
         attacker = _require_attacker()
@@ -599,6 +635,51 @@ async def _live_run_body(job: Job, *, attack: str, driver: str) -> dict:
     }
 
 
+def _load_recorded_replay() -> dict[str, Any]:
+    data = json.loads(RECORDED_REPLAY.read_text(encoding="utf-8"))
+    replay = data.get("replay") or {}
+    if not replay.get("attack") or not replay.get("payload"):
+        raise ValueError("recorded replay is incomplete")
+    return replay
+
+
+async def _reset_state_body(job: Job) -> dict:
+    job.emit("resetting test state")
+    result = await ctx.isolation.reset()
+    if not result["verified"]:
+        raise RuntimeError("state reset verification failed")
+    job.emit("test state reset verified")
+    return {
+        "status": "clean",
+        "message": "Test state reset completed and verified.",
+        "details": result,
+    }
+
+
+async def _recorded_live_body(job: Job, *, max_trials: int = 6) -> dict:
+    replay = _load_recorded_replay()
+    last_outcome: dict[str, Any] | None = None
+    for trial in range(1, max_trials + 1):
+        job.emit(f"recorded live trial {trial}/{max_trials}")
+        outcome = await _live_run_body(
+            job,
+            attack=str(replay["attack"]),
+            driver="template",
+            replay_message=str(replay["payload"]),
+        )
+        last_outcome = {key: value for key, value in outcome.items() if key != "poison_message"}
+        last_outcome["demo_trials"] = trial
+        last_outcome["mode"] = "recorded-live"
+        if outcome.get("status") == "vulnerable":
+            return last_outcome
+    return last_outcome or {
+        "status": "error",
+        "error": "no trial completed",
+        "demo_trials": max_trials,
+        "mode": "recorded-live",
+    }
+
+
 async def _audit_body(job: Job) -> dict:
     """One button, every known attack family back to back with the template
     driver -- deliberately not the LLM auto-attacker (even though it now
@@ -665,7 +746,7 @@ async def start_repeats(req: RepeatsRequest):
 @app.post("/api/jobs/auto-attack")
 async def start_auto_attack(req: AutoAttackRequest):
     if ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "configured model provider is unavailable")
     job = _new_job("auto-attack")
     import asyncio
 
@@ -690,6 +771,12 @@ def get_job(job_id: str):
 class LiveStartRequest(BaseModel):
     attack: str
     driver: str = "template"
+    memory_policy: str = "vulnerable"
+
+
+@app.get("/api/live/provider")
+def get_live_provider():
+    return ctx.attacker_info
 
 
 @app.get("/api/live/attacks")
@@ -697,6 +784,37 @@ def list_live_attacks():
     return [
         {"name": name, "auto_attack_capable": name in AUTO_ATTACK_CAPABLE} for name in KNOWN_ATTACKS
     ]
+
+
+@app.get("/api/live/recorded")
+def get_recorded_presentation():
+    try:
+        fixture = json.loads(RECORDED_PRESENTATION.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(503, "recorded presentation is unavailable") from exc
+    return JSONResponse(content=fixture)
+
+
+@app.post("/api/live/reset")
+async def start_state_reset():
+    job = _new_job("reset")
+    import asyncio
+
+    asyncio.create_task(_run_job(job, _reset_state_body))
+    return {"job_id": job.id}
+
+
+@app.post("/api/live/recorded/start")
+async def start_recorded_live():
+    try:
+        _load_recorded_replay()
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(503, "recorded replay is unavailable") from exc
+    job = _new_job("recorded-live")
+    import asyncio
+
+    asyncio.create_task(_run_job(job, _recorded_live_body))
+    return {"job_id": job.id}
 
 
 @app.post("/api/live/start")
@@ -711,12 +829,19 @@ async def start_live(req: LiveStartRequest):
             "is a negative control on a different, correctly-scoped memory collection)",
         )
     if req.driver == "llm-auto-attacker" and ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "configured model provider is unavailable")
+    if req.memory_policy not in ("vulnerable", "protected"):
+        raise HTTPException(400, "memory_policy must be 'vulnerable' or 'protected'")
     job = _new_job("live")
     import asyncio
 
     asyncio.create_task(
-        _run_job(job, lambda j: _live_run_body(j, attack=req.attack, driver=req.driver))
+        _run_job(
+            job,
+            lambda j: _live_run_body(
+                j, attack=req.attack, driver=req.driver, memory_policy=req.memory_policy
+            ),
+        )
     )
     return {"job_id": job.id}
 

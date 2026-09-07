@@ -132,13 +132,32 @@ uv run diskard scan path/to/diskard.yaml \
 
 Provider secrets are read from the environment variable names stored in the
 configuration file. They are not included in model prompts or run manifests.
+The local UI reads only Diskard's own `.env`; copy `.env.example` to `.env` and
+fill the configured provider values there. Set `ATTACKER_MODEL` to override the
+fallback model from `diskard.yaml` without changing the connector profile.
 
 Every scan records `result.json` and `junit.xml` in its run directory. Confirmed findings can be rendered and a run can be repeated:
 
 ```bash
 uv run diskard report RUN_ID
 uv run diskard replay RUN_ID
+uv run diskard replay RUN_ID --repeats 1
 ```
+
+For a bounded demo run, use the recorded input and stop after the first confirmed trial:
+
+```bash
+uv run --extra investment-stand \
+  python scripts/run_demo_replay.py \
+  examples/connectors/investment_stand/demo/confirmed-replay.json \
+  --max-trials 6
+```
+
+The recorded UI data lives at
+`examples/connectors/investment_stand/ui/fixtures/confirmed-lifecycle.json`.
+It contains only the versioned `presentation` contract. The live console exposes
+it through `GET /api/live/recorded` and the **Записанный результат** control.
+Use **Live по записанному вводу** to run the saved input in up to six clean trials.
 
 Run stateful scenarios sequentially unless the target provides a tested isolation boundary.
 

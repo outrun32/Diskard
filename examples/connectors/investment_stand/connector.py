@@ -124,6 +124,7 @@ class InvestmentStandConnector:
             response = await self._client.post(
                 f"{self._base_url}/v1/sessions/{operation.session_id}/finalize",
                 headers=headers,
+                params={"memory_policy": operation.payload.get("memory_policy", "protected")},
             )
             response.raise_for_status()
             return ConnectorResponse(data=response.json())
@@ -195,6 +196,12 @@ class MongoNamespaceIsolation:
         "episodic_memories",
         "api_keys",
     )
+    _reset_collections = (
+        "agent_policy_memories",
+        "semantic_memories",
+        "dialog_sessions",
+        "episodic_memories",
+    )
     _redis_pattern = "working:*"
 
     def __init__(self, *, mongo_uri: str, redis_url: str) -> None:
@@ -217,6 +224,28 @@ class MongoNamespaceIsolation:
             if payload is not None:
                 snapshot[key] = (payload, self._redis.pttl(key))
         return snapshot
+
+    async def reset(self) -> dict[str, Any]:
+        """Clear test-generated memory while preserving warmed API keys."""
+        cleared = {}
+        for name in self._reset_collections:
+            collection = self._db[name]
+            before = len(list(collection.find({})))
+            collection.delete_many({})
+            cleared[name] = before
+
+        redis_keys = list(self._redis.scan_iter(match=self._redis_pattern))
+        if redis_keys:
+            self._redis.delete(*redis_keys)
+        verified = all(
+            not list(self._db[name].find({})) for name in self._reset_collections
+        ) and not list(self._redis.scan_iter(match=self._redis_pattern))
+        return {
+            "cleared": cleared,
+            "redis_keys": len(redis_keys),
+            "verified": verified,
+            "api_keys_preserved": True,
+        }
 
     async def prepare(self, namespace: str) -> IsolationCheckpoint:
         mongo = self._mongo_snapshot()

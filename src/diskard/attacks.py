@@ -56,6 +56,7 @@ def _policy_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, str]:
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
         activation_strategy=getattr(args, "activation_strategy", "default"),
+        memory_policy=getattr(args, "memory_policy", "vulnerable"),
     )
     return scenario, poison_session_id(run_id)
 
@@ -74,6 +75,7 @@ def _compaction_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, st
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
         activation_strategy=getattr(args, "activation_strategy", "default"),
+        memory_policy=getattr(args, "memory_policy", "vulnerable"),
     )
     return scenario, poison_session_id(run_id)
 
@@ -95,21 +97,32 @@ def _direct_memory_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any,
 
 
 def _policy_seed(args: Any) -> str:
-    from diskard.scenarios.cross_user_policy_poisoning import POISON_MESSAGE_TEMPLATE
+    """Cycle through the expanded CUS_POISON_TEMPLATES for deterministic variety.
+    Uses hash of cus to pick a stable starting template per data subject."""
+    from diskard.scenarios.cross_user_policy_poisoning import CUS_POISON_TEMPLATES
 
-    return POISON_MESSAGE_TEMPLATE.format(data_subject_cus=args.data_subject_cus)
+    idx = hash(args.data_subject_cus) % len(CUS_POISON_TEMPLATES)
+    return CUS_POISON_TEMPLATES[idx].format(data_subject_cus=args.data_subject_cus)
 
 
 def _compaction_seed(args: Any) -> str:
-    from diskard.scenarios.compaction_policy_poisoning import POISON_MESSAGE_TEMPLATE
+    """Use the same template pool as the single-message variant — the
+    core payload is identical, only the delivery (buried among fillers)
+    differs."""
+    from diskard.scenarios.cross_user_policy_poisoning import CUS_POISON_TEMPLATES
 
-    return POISON_MESSAGE_TEMPLATE.format(data_subject_cus=args.data_subject_cus)
+    idx = (hash(args.data_subject_cus) + 1) % len(CUS_POISON_TEMPLATES)
+    return CUS_POISON_TEMPLATES[idx].format(data_subject_cus=args.data_subject_cus)
 
 
 def _recommendation_seed(args: Any) -> str:
-    from diskard.scenarios.delayed_recommendation_manipulation import POISON_MESSAGE
+    """Cycle through recommendation templates for variety."""
+    from diskard.scenarios.delayed_recommendation_manipulation import (
+        RECOMMENDATION_POISON_TEMPLATES,
+    )
 
-    return POISON_MESSAGE
+    idx = hash(getattr(args, "control_cus", "")) % len(RECOMMENDATION_POISON_TEMPLATES)
+    return RECOMMENDATION_POISON_TEMPLATES[idx]
 
 
 def _recommendation_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any, str]:
@@ -126,6 +139,7 @@ def _recommendation_scenario(args: Any, dispatch: Any, run_id: str) -> tuple[Any
         run_id=run_id,
         poison_message=getattr(args, "poison_message", None),
         activation_strategy=getattr(args, "activation_strategy", "default"),
+        memory_policy=getattr(args, "memory_policy", "vulnerable"),
     )
     return scenario, poison_session_id(run_id)
 

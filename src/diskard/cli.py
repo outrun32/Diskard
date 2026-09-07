@@ -103,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the connector config stored in the replay manifest.",
     )
+    replay.add_argument(
+        "--repeats",
+        type=_positive_int,
+        default=None,
+        help="Override the number of independent replay trials.",
+    )
 
     list_parser = subparsers.add_parser("list", help="List available attacks/adapters.")
     list_parser.add_argument("what", choices=["attacks", "adapters"])
@@ -713,7 +719,7 @@ async def _cmd_replay(args: argparse.Namespace) -> int:
         if manifest.get("payload")
         else (manifest.get("metadata") or {}).get("driver"),
         max_attempts=(manifest.get("metadata") or {}).get("max_attempts"),
-        repeats=(manifest.get("metadata") or {}).get("repeats"),
+        repeats=args.repeats or (manifest.get("metadata") or {}).get("repeats"),
         activation_strategy=(manifest.get("metadata") or {}).get("activation_strategy"),
         poison_message=manifest.get("payload"),
         fail_on=manifest["fail_on"],

@@ -115,6 +115,15 @@ def test_replay_help_does_not_touch_the_network():
     assert exc_info.value.code == 0
 
 
+def test_replay_parser_accepts_repeat_override():
+    from diskard.cli import build_parser
+
+    args = build_parser().parse_args(["replay", "saved-run", "--repeats", "1"])
+
+    assert args.run_id == "saved-run"
+    assert args.repeats == 1
+
+
 def test_report_missing_run_id_is_a_usage_error(capsys, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["report", "not-a-real-run-id"]) == 2
