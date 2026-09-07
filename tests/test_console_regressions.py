@@ -52,7 +52,7 @@ def test_migrations_use_alembic_and_are_repeatable(store):
     with store.engine.connect() as connection:
         assert (
             connection.execute(text("select version_num from alembic_version")).scalar_one()
-            == "0004_checks"
+            == "0005_check_name"
         )
 
 
