@@ -1359,7 +1359,6 @@ app.mount(
 )
 
 
-@app.api_route("/monitor", methods=["GET", "HEAD"])
 @app.api_route("/runs", methods=["GET", "HEAD"])
 @app.api_route("/runs/new", methods=["GET", "HEAD"])
 @app.api_route("/runs/{run_id}/{view}", methods=["GET", "HEAD"])

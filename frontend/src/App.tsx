@@ -32,7 +32,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Radar,
   RefreshCw,
   RotateCcw,
   Search,
@@ -57,7 +56,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { DEMO_MODE, cancelRun, deleteCheck, deleteRun, getRun, listRunsPage, renameCheck, rerunRun, drainEvents, saveReport, request } from "./api";
 import { activeStatus } from "./models";
 import { LaunchCheckPage, CheckDetailPage, FindingInfo } from "./CheckPages";
-import { MonitorPage } from "./MonitorPage";
 import { TargetsPage, NewTargetPage, Failure } from "./SetupPages";
 import { LanguageProvider, useLanguage } from "./i18n";
 import type { ExecutionStatus, MemoryChange, RunDetail, RunFilters, RunSummary, SecurityOutcome, StageResult, TargetProfile, TraceEvent } from "./types";
@@ -157,7 +155,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed,setCollapsed]=useState(()=>localStorage.getItem("diskard-sidebar-collapsed")==="true");
   useEffect(()=>localStorage.setItem("diskard-sidebar-collapsed",String(collapsed)),[collapsed]);
   const nav = [
-    { to: "/monitor", label: "Monitor", icon: Radar },
     { to: "/runs", label: t("runs"), icon: Activity },
     { to: "/targets", label: t("targets"), icon: Target },
     { to: "/reports", label: t("reports"), icon: FileText },
@@ -453,5 +450,5 @@ function ComparePage() {
 }
 
 export default function App() {
-  return <LanguageProvider><AppShell><Routes><Route path="/" element={<Navigate to="/runs" replace />} /><Route path="/live" element={<Navigate to="/runs" replace />} /><Route path="/monitor" element={<MonitorPage />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/new" element={<LaunchCheckPage />} /><Route path="/checks/:id" element={<CheckDetailPage />} /><Route path="/checks" element={<Navigate to="/runs" replace />} /><Route path="/runs/:id/trace" element={<RunDetailPage mode="trace" />} /><Route path="/runs/:id/results" element={<RunDetailPage mode="results" />} /><Route path="/runs/:id/config" element={<RunDetailPage mode="config" />} /><Route path="/targets" element={<TargetsPage />} /><Route path="/targets/new" element={<NewTargetPage />} /><Route path="/targets/:id/edit" element={<NewTargetPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/reports/:id" element={<ReportPage />} /><Route path="/compare" element={<ComparePage />} /><Route path="/settings" element={<Navigate to="/runs" replace />} /><Route path="*" element={<div className="state-panel"><h1>Page not found</h1><Link to="/runs">Back to runs</Link></div>} /></Routes></AppShell></LanguageProvider>;
+  return <LanguageProvider><AppShell><Routes><Route path="/" element={<Navigate to="/runs" replace />} /><Route path="/live" element={<Navigate to="/runs" replace />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/new" element={<LaunchCheckPage />} /><Route path="/checks/:id" element={<CheckDetailPage />} /><Route path="/checks" element={<Navigate to="/runs" replace />} /><Route path="/runs/:id/trace" element={<RunDetailPage mode="trace" />} /><Route path="/runs/:id/results" element={<RunDetailPage mode="results" />} /><Route path="/runs/:id/config" element={<RunDetailPage mode="config" />} /><Route path="/targets" element={<TargetsPage />} /><Route path="/targets/new" element={<NewTargetPage />} /><Route path="/targets/:id/edit" element={<NewTargetPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/reports/:id" element={<ReportPage />} /><Route path="/compare" element={<ComparePage />} /><Route path="/settings" element={<Navigate to="/runs" replace />} /><Route path="*" element={<div className="state-panel"><h1>Page not found</h1><Link to="/runs">Back to runs</Link></div>} /></Routes></AppShell></LanguageProvider>;
 }
