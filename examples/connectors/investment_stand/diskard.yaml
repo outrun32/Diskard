@@ -61,10 +61,9 @@ attacker:
   driver: deterministic
   max_attempts: 6
   provider:
-    name: deepseek-red-team
-    type: azure_ai
-    model: DeepSeek-V4-Flash
-    api_key_env: AZURE_OPENAI_API_KEY
-    base_url_env: AZURE_OPENAI_ENDPOINT
-    api_version_env: AZURE_OPENAI_API_VERSION
+    name: openrouter
+    type: openai
+    model: openrouter/auto
+    api_key_env: OPENROUTER_API_KEY
+    base_url_env: OPENROUTER_BASE_URL
     timeout_seconds: 240

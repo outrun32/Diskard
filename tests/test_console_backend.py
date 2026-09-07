@@ -33,10 +33,9 @@ def profile() -> TargetProfile:
     )
 
 
-def test_adaptive_driver_is_available_for_azure_attacker(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "configured")
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://azure.example/models/chat/completions")
+def test_adaptive_driver_is_available_for_openrouter_attacker(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "configured")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     adaptive = InvestmentExecutionBridge().capabilities(default_local_profile()).drivers[0]
     assert adaptive["id"] == "llm-auto-attacker"
     assert adaptive["available"] is True

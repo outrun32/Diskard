@@ -16,7 +16,8 @@ def test_example_connector_config_parses_without_resolving_secrets():
     assert config.execution.repeats == 3
     assert config.attacker.driver == "deterministic"
     assert config.attacker.provider is not None
-    assert config.attacker.provider.model == "DeepSeek-V4-Flash"
+    assert config.attacker.provider.model == "openrouter/auto"
+    assert config.attacker.provider.api_key_env == "OPENROUTER_API_KEY"
     assert set(config.actor_refs()) == {"poisoner", "victim", "data_subject", "control"}
     serialized = config.model_dump_json()
     assert "sk-genai-" not in serialized

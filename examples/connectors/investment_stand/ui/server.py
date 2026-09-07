@@ -228,7 +228,7 @@ async def lifespan(app: FastAPI):
     config = load_config(CONNECTOR_CONFIG)
     provider = config.attacker.provider
     configured_model = (
-        os.environ.get("ATTACKER_MODEL", provider.model) if provider is not None else None
+        os.environ.get("OPENROUTER_MODEL", provider.model) if provider is not None else None
     )
     ctx.attacker = None
     ctx.attacker_info = {

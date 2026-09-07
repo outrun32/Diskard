@@ -91,13 +91,28 @@ uv sync --extra dev --extra ui --extra investment-stand
 ```
 
 For the bundled local investment stand, the console can also be started with
-Docker without creating `.env` or `config/targets.yaml` first:
+Docker without creating `config/targets.yaml` first. Copy the example environment
+file and add an OpenRouter key to enable the automatic LLM attacker:
 
 ```bash
+cp .env.example .env
+# Edit .env and set OPENROUTER_API_KEY=sk-or-...
 docker compose up --build -d
 ```
 
 It creates the durable database and `investment-local` profile automatically.
+The deterministic attack mode works without an OpenRouter key. The automatic
+LLM mode reads these values from `.env`:
+
+```dotenv
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openrouter/auto
+```
+
+`OPENROUTER_MODEL` accepts any OpenRouter model slug such as
+`anthropic/claude-sonnet-4.5`; use `openrouter/auto` to let OpenRouter select a
+model. Never commit `.env`.
 When the local stand is available, profile validation bootstraps its standard
 test users through Keycloak. See [the local console quickstart](./docs/local-console-quickstart.md)
 for the expected stand endpoints and custom-target setup.
@@ -132,9 +147,10 @@ uv run diskard scan path/to/diskard.yaml \
 
 Provider secrets are read from the environment variable names stored in the
 configuration file. They are not included in model prompts or run manifests.
-The local UI reads only Diskard's own `.env`; copy `.env.example` to `.env` and
-fill the configured provider values there. Set `ATTACKER_MODEL` to override the
-fallback model from `diskard.yaml` without changing the connector profile.
+The local UI reads only Diskard's own `.env`. Set `OPENROUTER_MODEL` there to
+override the fallback model from `diskard.yaml` without changing the connector
+profile. Diskard uses OpenRouter's OpenAI-compatible
+`https://openrouter.ai/api/v1` endpoint, so no Azure configuration is required.
 
 Every scan records `result.json` and `junit.xml` in its run directory. Confirmed findings can be rendered and a run can be repeated:
 

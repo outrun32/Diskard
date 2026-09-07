@@ -288,7 +288,7 @@ async def test_agentic_search_continues_past_persistence_until_terminal_goal():
     assert len(generator.calls) == 0
 
 
-def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
+def test_giskard_attacker_configures_openrouter_provider(monkeypatch):
     configured = {}
     generated = {}
     fake_generator = FakeGenerator('{"message":"candidate","idea":"mutation"}')
@@ -305,20 +305,18 @@ def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
     monkeypatch.setenv("TEST_ATTACKER_KEY", "secret")
     monkeypatch.setenv(
         "TEST_ATTACKER_ENDPOINT",
-        "https://example.services.ai.azure.com/models/chat/completions",
+        "https://openrouter.ai/api/v1",
     )
-    monkeypatch.setenv("TEST_ATTACKER_VERSION", "2024-05-01-preview")
-    monkeypatch.setenv("ATTACKER_MODEL", "openai:Alternative-Model")
+    monkeypatch.setenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
     config = AttackerConfig.model_validate(
         {
             "driver": "llm-agent",
             "provider": {
-                "name": "deepseek-test",
-                "type": "azure_ai",
-                "model": "DeepSeek-V4-Flash",
+                "name": "openrouter",
+                "type": "openai",
+                "model": "openrouter/auto",
                 "api_key_env": "TEST_ATTACKER_KEY",
                 "base_url_env": "TEST_ATTACKER_ENDPOINT",
-                "api_version_env": "TEST_ATTACKER_VERSION",
                 "timeout_seconds": 180,
             },
         }
@@ -327,9 +325,9 @@ def test_giskard_attacker_configures_azure_ai_provider(monkeypatch):
     attacker = AttackerLLM.from_config(config)
 
     assert attacker._generator is fake_generator
-    assert configured["name"] == "deepseek-test"
-    assert configured["provider"] == "azure_ai"
+    assert configured["name"] == "openrouter"
+    assert configured["provider"] == "openai"
     assert configured["options"]["api_key"] == "secret"
-    assert configured["options"]["base_url"] == "https://example.services.ai.azure.com"
+    assert configured["options"]["base_url"] == "https://openrouter.ai/api/v1"
     assert configured["options"]["timeout"] == 180
-    assert generated["model"] == "deepseek-test/Alternative-Model"
+    assert generated["model"] == "openrouter/anthropic/claude-sonnet-4.5"

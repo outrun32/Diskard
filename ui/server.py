@@ -226,7 +226,8 @@ async def lifespan(app: FastAPI):
     ctx.semantic = SemanticMemoryEvidence()
     ctx.attacker = (
         AttackerLLM()
-        if os.environ.get("DISKARD_ENABLE_LEGACY") == "1" and os.environ.get("OPENAI_API_KEY")
+        if os.environ.get("DISKARD_ENABLE_LEGACY") == "1"
+        and os.environ.get("OPENROUTER_API_KEY")
         else None
     )
     ctx.identities = {}
@@ -310,7 +311,7 @@ async def _ensure_identities() -> dict[str, Actor]:
 
 def _require_attacker() -> AttackerLLM:
     if ctx.attacker is None:
-        raise RuntimeError("LLM auto-attacker requires OPENAI_API_KEY")
+        raise RuntimeError("LLM auto-attacker requires OPENROUTER_API_KEY")
     return ctx.attacker
 
 
@@ -737,7 +738,7 @@ async def start_repeats(req: RepeatsRequest):
 @app.post("/api/jobs/auto-attack")
 async def start_auto_attack(req: AutoAttackRequest):
     if ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "LLM auto-attacker requires OPENROUTER_API_KEY")
     job = _new_job("auto-attack")
     import asyncio
 
@@ -783,7 +784,7 @@ async def start_live(req: LiveStartRequest):
             "is a negative control on a different, correctly-scoped memory collection)",
         )
     if req.driver == "llm-auto-attacker" and ctx.attacker is None:
-        raise HTTPException(503, "LLM auto-attacker requires OPENAI_API_KEY")
+        raise HTTPException(503, "LLM auto-attacker requires OPENROUTER_API_KEY")
     job = _new_job("live")
     import asyncio
 
@@ -864,7 +865,11 @@ def diskard_turtle_logo():
     logo = FRONTEND_DIST / "diskard-turtle-logo.png"
     if not logo.is_file():
         raise HTTPException(404, "logo asset is not built")
-    return FileResponse(logo, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+    return FileResponse(
+        logo,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

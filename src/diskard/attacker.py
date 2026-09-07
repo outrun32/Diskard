@@ -4,8 +4,8 @@ compaction-policy-poisoning, delayed-recommendation-manipulation).
 
 Manual wording iteration (examples/iterate_poison.py) got the team to a
 ~50% persistence rate with one hand-tuned template. This module automates
-that search: an attacker LLM (any OpenAI-compatible model, configured via
-OPENAI_API_KEY/OPENAI_BASE_URL/ATTACKER_MODEL -- deliberately separate from
+that search: an attacker LLM routed through OpenRouter, configured via
+OPENROUTER_API_KEY/OPENROUTER_BASE_URL/OPENROUTER_MODEL -- deliberately separate from
 the target's own model wiring in stand/.env) proposes a new chat message
 each round, sees exactly how the target's extract_semantics step classified
 the previous attempt (scope=user vs scope=global, the paraphrased fact
@@ -409,7 +409,6 @@ class GiskardAttacker:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
-        api_version: str | None = None,
         timeout_seconds: float = 240.0,
     ) -> None:
         self._timeout_seconds = timeout_seconds
@@ -417,30 +416,21 @@ class GiskardAttacker:
             self._generator = generator
             return
 
-        from urllib.parse import urlsplit, urlunsplit
-
         from giskard.agents import Generator
         from giskard.llm import configure
 
         provider = provider or os.environ.get("ATTACKER_PROVIDER", "openai")
-        api_key = api_key or os.environ.get("ATTACKER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        api_key = api_key or os.environ.get("ATTACKER_API_KEY") or os.environ.get(
+            "OPENROUTER_API_KEY"
+        )
         if not api_key:
             raise ValueError("attacker provider API key is not configured")
         base_url = (
-            base_url or os.environ.get("ATTACKER_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+            base_url
+            or os.environ.get("ATTACKER_BASE_URL")
+            or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         )
-        model = model or os.environ.get("ATTACKER_MODEL", "gpt-4o-mini")
-        if "/" in model:
-            _model_provider, model = model.split("/", maxsplit=1)
-        elif ":" in model:
-            _model_provider, model = model.split(":", maxsplit=1)
-
-        if provider == "azure_ai" and base_url:
-            parsed = urlsplit(base_url)
-            base_url = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-            api_version = api_version or os.environ.get("ATTACKER_API_VERSION")
-            if api_version:
-                os.environ["AZURE_AI_API_VERSION"] = api_version
+        model = model or os.environ.get("OPENROUTER_MODEL", "openrouter/auto")
 
         provider_options: dict[str, Any] = {
             "api_key": api_key,
@@ -502,15 +492,13 @@ class GiskardAttacker:
                 f"missing attacker API key environment variable {provider.api_key_env}"
             )
         base_url = os.environ.get(provider.base_url_env) if provider.base_url_env else None
-        api_version = os.environ.get(provider.api_version_env) if provider.api_version_env else None
-        model = os.environ.get("ATTACKER_MODEL", provider.model)
+        model = os.environ.get("OPENROUTER_MODEL", provider.model)
         return cls(
             provider=provider.type,
             provider_name=provider.name,
             api_key=api_key,
             base_url=base_url,
             model=model,
-            api_version=api_version,
             timeout_seconds=provider.timeout_seconds,
         )
 
