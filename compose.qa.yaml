@@ -1,0 +1,5 @@
+# Optional disposable/local acceptance access; never needed for normal deployment.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${DISKARD_QA_DB_PORT:-55433}:5432"

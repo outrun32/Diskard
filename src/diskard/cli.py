@@ -113,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List available attacks/adapters.")
     list_parser.add_argument("what", choices=["attacks", "adapters"])
 
+    legacy_import = subparsers.add_parser(
+        "import", help="Import an existing runs/result.json or finding JSON into the console DB."
+    )
+    legacy_import.add_argument("path", type=Path)
+    legacy_import.add_argument("--database-url", default=None)
+
     return parser
 
 
@@ -663,6 +669,38 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_import(args: argparse.Namespace) -> int:
+    """Explicit local import; the browser never receives a host path."""
+    import os
+
+    from diskard.console.repository import RunStore, make_engine, migrate
+
+    source = args.path.resolve()
+    if source.is_file():
+        files = [source]
+    elif source.is_dir():
+        files = sorted(set(source.glob("*/result.json")) | set(source.glob("finding-*.json")))
+    else:
+        print(f"import path does not exist: {source}")
+        return 2
+    if not files:
+        print(f"no supported legacy JSON files found under {source}")
+        return 2
+    database_url = args.database_url or os.getenv("DISKARD_DATABASE_URL")
+    if not database_url:
+        print("set DISKARD_DATABASE_URL or pass --database-url")
+        return 2
+    engine = make_engine(database_url)
+    try:
+        migrate(engine)
+        store = RunStore(engine)
+        for path in files:
+            print(f"imported {path} as {store.import_legacy(path)}")
+    finally:
+        engine.dispose()
+    return 0
+
+
 async def _cmd_replay(args: argparse.Namespace) -> int:
     envelope = _load_run(args.run_id)
     if envelope is None:
@@ -705,6 +743,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_cmd_validate(args))
     if args.command == "report":
         return _cmd_report(args)
+    if args.command == "import":
+        return _cmd_import(args)
     if args.command == "replay":
         return asyncio.run(_cmd_replay(args))
 

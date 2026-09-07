@@ -78,8 +78,9 @@ class MongoEvidence:
         self,
         mongo_uri: str = "mongodb://localhost:27017",
         db: str = "agent_memory",
+        collection: str = "agent_policy_memories",
     ) -> None:
-        self._col = MongoClient(mongo_uri)[db]["agent_policy_memories"]
+        self._col = MongoClient(mongo_uri)[db][collection]
 
     def snapshot(self) -> list[dict[str, Any]]:
         return [{k: v for k, v in doc.items() if k != "_id"} for doc in self._col.find({})]
@@ -114,8 +115,9 @@ class SemanticMemoryEvidence:
         self,
         mongo_uri: str = "mongodb://localhost:27017",
         db: str = "agent_memory",
+        collection: str = "semantic_memories",
     ) -> None:
-        self._col = MongoClient(mongo_uri)[db]["semantic_memories"]
+        self._col = MongoClient(mongo_uri)[db][collection]
 
     def find_by_user(self, user_id: str) -> list[dict[str, Any]]:
         return [

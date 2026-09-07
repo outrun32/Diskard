@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/public/diskard-turtle-logo.png" alt="Diskard turtle logo" width="220">
+</p>
+
 # Diskard
 
 Diskard is an open-source security test runner for AI agents that keep memory, call tools, and act across multiple sessions.
@@ -85,6 +89,18 @@ Install the optional local console dependencies with:
 ```bash
 uv sync --extra dev --extra ui --extra investment-stand
 ```
+
+For the bundled local investment stand, the console can also be started with
+Docker without creating `.env` or `config/targets.yaml` first:
+
+```bash
+docker compose up --build -d
+```
+
+It creates the durable database and `investment-local` profile automatically.
+When the local stand is available, profile validation bootstraps its standard
+test users through Keycloak. See [the local console quickstart](./docs/local-console-quickstart.md)
+for the expected stand endpoints and custom-target setup.
 
 ## CLI
 

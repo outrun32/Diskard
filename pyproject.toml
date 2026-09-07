@@ -28,11 +28,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "fastapi>=0.141.1",
-  "python-dotenv>=1.2.3",
-  "pytest>=8.4,<10",
-  "pytest-asyncio>=1.2,<2",
-  "ruff>=0.13,<1",
+    "fastapi>=0.141.1",
+    "python-dotenv>=1.2.3",
+    "pytest>=8.4,<10",
+    "pytest-asyncio>=1.2,<2",
+    "ruff>=0.13,<1",
+    "sqlalchemy>=2.0.43,<3",
+    "psycopg[binary]>=3.2.10,<4",
+    "alembic>=1.16,<2",
+    "pyyaml>=6.0,<7",
 ]
 llm = [
   "giskard-agents[openai]>=1.0.2,<2",
@@ -48,6 +52,15 @@ ui = [
 investment-stand = [
   "pymongo>=4.17.0",
   "redis>=5,<8",
+]
+console = [
+    "fastapi>=0.141.1",
+    "python-dotenv>=1.2.3",
+    "uvicorn[standard]>=0.52.4",
+    "sqlalchemy>=2.0.43,<3",
+    "psycopg[binary]>=3.2.10,<4",
+    "alembic>=1.16,<2",
+    "pyyaml>=6.0,<7",
 ]
 
 [project.scripts]

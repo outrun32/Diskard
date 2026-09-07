@@ -1,0 +1,67 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ChevronDown, MoreHorizontal, Play, RefreshCw } from "lucide-react";
+import { listProfiles, getProfile, saveProfile, validateTarget, deleteProfile } from "./api";
+import type { ProfileInput, Profile, ReadinessCheck } from "./types";
+import { useLanguage } from "./i18n";
+export function Failure({error,retry}:{error:unknown;retry?:()=>void}){const {language}=useLanguage(),ru=language==="ru";return <div className="state-panel state-error" role="alert"><div><h2>{ru?"Не удалось получить данные":"Could not load data"}</h2><p>{error instanceof Error?error.message:ru?"Неизвестная ошибка":"Unknown error"}</p>{retry&&<button className="button button-secondary" onClick={retry}>{ru?"Повторить":"Retry"}</button>}</div></div>;}
+function Header({title,children}:{title:string;children?:React.ReactNode}){return <div className="page-header"><h1>{title}</h1>{children}</div>;}
+export function Checks({checks}:{checks:ReadinessCheck[]}){const {language}=useLanguage();const labels:Record<string,string>=language==="ru"?{ready:"Готово",blocked:"Заблокировано",optional:"Необязательно",unknown:"Не проверено",missing:"Не настроено"}:{ready:"Ready",blocked:"Blocked",optional:"Optional",unknown:"Not checked",missing:"Not configured"};return <div className="settings-checks">{checks.map(c=><div className="settings-check" key={c.id}><div><strong>{c.label||c.id}</strong><span>{c.reason||c.detail}</span></div><span>{labels[c.status]??c.status}</span></div>)}</div>;}
+function ProfileCard({profile}:{profile:Profile}){
+ const cache=useQueryClient();
+ const validate=useMutation({mutationFn:()=>validateTarget(profile.id)});
+ const remove=useMutation({mutationFn:()=>deleteProfile(profile.id),onSuccess:()=>{void cache.invalidateQueries({queryKey:["profiles"]});void cache.invalidateQueries({queryKey:["setup"]});}});
+ const confirmDelete=()=>{if(window.confirm("Delete this connection?"))remove.mutate();};
+ const state=validate.isError?"error":validate.data?(validate.data.ready?"ready":"attention"):"unchecked";
+ const stateLabel={error:"Check failed",ready:"Ready",attention:"Needs attention",unchecked:"Not checked"}[state];
+ const actors=Object.entries(profile.actor_status??{});
+ return <article className="target-profile-card">
+  <header className="target-summary">
+   <div className="target-summary-main"><h2>{profile.name}</h2><div className="target-meta"><span>{profile.adapter}</span><code>{profile.config.base_url}</code></div></div>
+   <span className={`target-connection-status target-connection-status-${state}`} aria-live="polite"><span className="target-status-dot" aria-hidden="true"/>{stateLabel}</span>
+  </header>
+  <div className="target-card-actions">
+   <Link className="button button-primary" to={"/runs/new?target="+encodeURIComponent(profile.id)}><Play size={15} aria-hidden="true"/>Run attack</Link>
+   <button className="button button-secondary" disabled={validate.isPending} onClick={()=>validate.mutate()}><RefreshCw className={validate.isPending?"spin":undefined} size={15} aria-hidden="true"/>{validate.isPending?"Checking…":"Check connection"}</button>
+   <details className="target-actions-menu">
+    <summary className="icon-button" aria-label="More actions"><MoreHorizontal size={18} aria-hidden="true"/></summary>
+    <div className="target-actions-popover">
+     <Link to={"/targets/"+encodeURIComponent(profile.id)+"/edit"}>Edit connection</Link>
+     <button type="button" disabled={remove.isPending} onClick={confirmDelete}>{remove.isPending?"Deleting…":"Delete connection"}</button>
+    </div>
+   </details>
+  </div>
+  <details className="target-connection-details">
+   <summary>Connection details <ChevronDown size={15} aria-hidden="true"/></summary>
+   {actors.length?<dl>{actors.map(([role,status])=>{const references=Object.values(status.credential_refs).filter(Boolean);return <div className="target-detail-row" key={role}><dt>{role.replaceAll("_"," ")} {status.cus&&<span>· user {status.cus}</span>}</dt><dd>{references.length?references.join(", "):"No credential references"}{!status.configured&&<strong>Needs configuration</strong>}</dd></div>;})}</dl>:<p>No actor mappings configured.</p>}
+  </details>
+  {validate.isError&&<Failure error={validate.error}/>} {remove.isError&&<Failure error={remove.error}/>} {validate.data&&<div className="target-validation" role="status"><Checks checks={validate.data.checks}/></div>}
+ </article>;
+}
+export function TargetsPage(){
+ const {language,t}=useLanguage(),ru=language==="ru";
+ const q=useQuery({queryKey:["profiles"],queryFn:({signal})=>listProfiles(signal)});
+ return <div><Header title={t("targets")}><Link className="button button-primary" to="/targets/new">Add target</Link></Header><p className="targets-intro">Connect a service, check access, and start an attack.</p>
+ {q.isPending?<p role="status">{t("loadingTargets")}</p>:q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:q.data.length?<div className="profile-list">{q.data.map(p=><ProfileCard key={p.id} profile={p}/>)}</div>:<div className="state-panel"><h2>{ru?"Цели не подключены":"No targets connected"}</h2><p>{ru?"Добавьте URL цели, чтобы настроить атаку.":"Add a target URL to configure an attack."}</p></div>}</div>;
+}
+const blank:ProfileInput={schema_version:1,id:"",name:"",adapter:"investment-stand",base_url:"",actors:{},lifecycle:{},adapter_options:{}};
+function ProfileForm({initial,editing}:{initial:ProfileInput;editing:boolean}){
+ const {language}=useLanguage(),ru=language==="ru";
+ const [form,setForm]=useState(initial),[actors,setActors]=useState(JSON.stringify(initial.actors,null,2)),[lifecycle,setLifecycle]=useState(JSON.stringify(initial.lifecycle,null,2)),[options,setOptions]=useState(JSON.stringify(initial.adapter_options,null,2)),[error,setError]=useState("");
+ const cache=useQueryClient(),navigate=useNavigate();
+ const mutation=useMutation({mutationFn:(input:ProfileInput)=>saveProfile(input,editing),onSuccess:()=>{void cache.invalidateQueries({queryKey:["profiles"]});void cache.invalidateQueries({queryKey:["profile"]});void cache.invalidateQueries({queryKey:["setup"]});navigate("/targets");}});
+ const parseObject=(s:string)=>{const o=JSON.parse(s);if(!o||Array.isArray(o)||typeof o!=="object")throw new Error("Ожидается JSON-объект");return o;};
+ function submit(e:React.FormEvent){e.preventDefault();setError("");try{
+ const u=new URL(form.base_url);if(!["http:","https:"].includes(u.protocol)||u.username||u.password)throw new Error("Enter an HTTP(S) URL without embedded credentials.");
+ const mapping=parseObject(actors);
+ for(const [role,entry] of Object.entries(mapping)){const a=entry as Record<string,unknown>;if(!a||typeof a!=="object"||!a.cus)throw new Error("У роли "+role+" требуется cus.");for(const key of Object.keys(a)){if(!["cus","credential_env","credential_file","access_token_env","access_token_file","attributes"].includes(key))throw new Error("Недопустимое поле роли: "+key);}for(const key of ["credential_env","access_token_env"]){if(a[key]&&!/^[A-Z][A-Z0-9_]{1,127}$/.test(String(a[key])))throw new Error("Укажите имя переменной окружения, а не значение секрета.");}}
+ const generatedId=(u.hostname||"target").toLowerCase().replace(/[^a-z0-9_.-]+/g,"-").replace(/^[^a-z0-9]+/,"").slice(0,80)||"target";
+ mutation.mutate({...form,id:form.id||generatedId,name:form.name.trim()||u.hostname,actors:mapping,lifecycle:parseObject(lifecycle),adapter_options:parseObject(options)});
+ }catch(err){setError(err instanceof Error?err.message:"Проверьте конфигурацию");}}
+ return <form onSubmit={submit} className="form-layout"><section className="form-panel"><h2>{ru?"Цель":"Target"}</h2><div className="form-grid"><label className="form-field"><span>{ru?"URL цели":"Target URL"}</span><input required type="url" value={form.base_url} maxLength={2048} placeholder="https://app.example.com" onChange={e=>setForm({...form,base_url:e.target.value})}/></label><label className="form-field"><span>{ru?"Название":"Name"} <small>{ru?"необязательно":"optional"}</small></span><input value={form.name} maxLength={160} placeholder={ru?"Создаётся из URL":"Generated from URL"} onChange={e=>setForm({...form,name:e.target.value})}/></label></div><p>{ru?"Можно сначала сохранить только URL. Для атак с идентичностями или evidence-сервисами интерфейс покажет, чего не хватает.":"You can save the URL first. Attacks that require identities or evidence services will show exactly what is missing."}</p></section>
+ <details className="advanced-panel"><summary>{ru?"Расширенная конфигурация цели":"Advanced target configuration"}</summary><div className="form-grid"><label className="form-field"><span>ID {ru?"профиля":"profile"}</span><input value={form.id} disabled={editing} pattern="[a-z0-9][a-z0-9_.-]{0,79}" placeholder={ru?"Создаётся из URL":"Generated from URL"} onChange={e=>setForm({...form,id:e.target.value})}/></label><label className="form-field"><span>{ru?"Адаптер":"Adapter"}</span><input required value={form.adapter} onChange={e=>setForm({...form,adapter:e.target.value})}/></label></div><h3>{ru?"Роли и ссылки на credentials":"Roles and credential references"}</h3><p>{ru?"Значения секретов задаются в окружении сервера. Здесь указываются только имена переменных или файлов.":"Secret values belong in the server environment. Enter only environment variable or file references here."}</p><label className="form-field"><span>{ru?"Роли":"Roles"} (JSON)</span><textarea rows={10} value={actors} onChange={e=>setActors(e.target.value)} spellCheck={false}/></label><button type="button" className="button button-secondary" onClick={()=>setActors(JSON.stringify({attacker:{cus:"1001",credential_env:"DISKARD_ATTACKER_TARGET_KEY"},trigger_user:{cus:"1002",credential_env:"DISKARD_TRIGGER_TARGET_KEY"},data_subject:{cus:"1003",credential_env:"DISKARD_SUBJECT_TARGET_KEY",access_token_env:"DISKARD_SUBJECT_TARGET_TOKEN"},control:{cus:"1004",credential_env:"DISKARD_CONTROL_TARGET_KEY"}},null,2))}>{ru?"Использовать шаблон ролей инвестиционного стенда":"Use investment stand role template"}</button><label className="form-field"><span>Lifecycle (JSON)</span><textarea value={lifecycle} onChange={e=>setLifecycle(e.target.value)} rows={5}/></label><label className="form-field"><span>{ru?"Параметры адаптера":"Adapter options"} (JSON)</span><textarea value={options} onChange={e=>setOptions(e.target.value)} rows={6}/></label></details>
+ <div className="form-actions"><button className="button button-primary" disabled={mutation.isPending}>{mutation.isPending?(ru?"Сохраняем…":"Saving…"):editing?(ru?"Сохранить новую версию":"Save new version"):(ru?"Добавить цель":"Add target")}</button><Link to="/targets" className="button button-secondary">{ru?"Отмена":"Cancel"}</Link></div>
+ {(error||mutation.isError)&&<Failure error={error?new Error(error):mutation.error}/>}</form>;
+}
+export function NewTargetPage(){const {language}=useLanguage(),ru=language==="ru";const {id}=useParams();const q=useQuery({queryKey:["profile",id],queryFn:({signal})=>getProfile(id!,signal),enabled:!!id});return <div><Header title={id?(ru?"Изменить цель":"Edit target"):(ru?"Добавить URL цели":"Add target URL")}><Link to="/targets" className="button button-secondary">{ru?"К целям":"Back to targets"}</Link></Header>{id&&q.isPending?<p>{ru?"Загружаем цель…":"Loading target…"}</p>:id&&q.isError?<Failure error={q.error} retry={()=>q.refetch()}/>:<ProfileForm key={id??"new"} initial={q.data?.config??blank} editing={!!id}/>}</div>;}

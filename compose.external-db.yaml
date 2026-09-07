@@ -1,0 +1,41 @@
+services:
+  diskard:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DISKARD_HOST: ${DISKARD_HOST:-0.0.0.0}
+      DISKARD_PORT: 8700
+      DISKARD_LOG_LEVEL: ${DISKARD_LOG_LEVEL:-INFO}
+      GISKARD_TELEMETRY_DISABLED: ${GISKARD_TELEMETRY_DISABLED:-true}
+      GISKARD_QUIET: ${GISKARD_QUIET:-true}
+      DISKARD_DATABASE_URL: ${DISKARD_DATABASE_URL:?set DISKARD_DATABASE_URL to an external PostgreSQL URL}
+      DISKARD_BUILD_SHA: ${DISKARD_BUILD_SHA:-unknown}
+      DISKARD_PROFILE_FILE: /config/targets.yaml
+      DISKARD_PUBLISHED_PORT: ${DISKARD_PUBLISHED_PORT:-8700}
+      DISKARD_EVENT_MAX_BYTES: ${DISKARD_EVENT_MAX_BYTES:-262144}
+      DISKARD_EXPORT_MAX_BYTES: ${DISKARD_EXPORT_MAX_BYTES:-52428800}
+      DISKARD_ALLOWED_ORIGINS: ${DISKARD_ALLOWED_ORIGINS:-http://localhost:${DISKARD_PUBLISHED_PORT:-8700},http://127.0.0.1:${DISKARD_PUBLISHED_PORT:-8700}}
+      DISKARD_ALLOWED_HOSTS: ${DISKARD_ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
+      DISKARD_ATTACKER_TARGET_KEY: ${DISKARD_ATTACKER_TARGET_KEY:-}
+      DISKARD_TRIGGER_TARGET_KEY: ${DISKARD_TRIGGER_TARGET_KEY:-}
+      DISKARD_SUBJECT_TARGET_KEY: ${DISKARD_SUBJECT_TARGET_KEY:-}
+      DISKARD_SUBJECT_TARGET_TOKEN: ${DISKARD_SUBJECT_TARGET_TOKEN:-}
+      DISKARD_CONTROL_TARGET_KEY: ${DISKARD_CONTROL_TARGET_KEY:-}
+      DISKARD_TARGET_MONGO_URI: ${DISKARD_TARGET_MONGO_URI:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      ATTACKER_MODEL: ${ATTACKER_MODEL:-openai/gpt-4o-mini}
+    ports:
+      - "127.0.0.1:${DISKARD_PUBLISHED_PORT:-8700}:8700"
+    stop_grace_period: 90s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/config:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8700/health/live')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

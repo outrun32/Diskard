@@ -36,6 +36,19 @@ class FakeGenerator:
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
+@pytest.mark.asyncio
+async def test_giskard_attacker_can_return_plain_analysis_text():
+    generator = FakeGenerator("  Stored evidence shows a cross-user memory leak.  ")
+    attacker = AttackerLLM(generator=generator)
+
+    result = await attacker.complete_text(
+        [{"role": "user", "content": "explain"}], max_tokens=80
+    )
+
+    assert result == "Stored evidence shows a cross-user memory leak."
+    assert generator.calls[0][1].max_tokens == 80
+
+
 def test_registry_covers_exactly_the_three_write_side_families():
     assert set(ATTACK_OBJECTIVES) == {
         "cross-user-global-policy-poisoning",

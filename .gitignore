@@ -17,6 +17,8 @@ venv/
 .env
 .env.*
 !.env.example
+config/targets.yaml
+config/secrets/
 artifacts/
 runs/
 
@@ -34,3 +36,5 @@ examples/recommendation-shift-summary.json
 .DS_Store
 .idea/
 .vscode/
+node_modules/
+*.tsbuildinfo
