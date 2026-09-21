@@ -10,8 +10,8 @@ import pytest
 from diskard.console.bridge import (
     FakeExecutionBridge,
     InvestmentExecutionBridge,
-    _memory_options,
     _load_verified_scenario,
+    _memory_options,
     auto_bootstrap_enabled,
     generate_finding_explanation,
 )
@@ -73,7 +73,11 @@ async def test_finding_explanation_accepts_stored_execution_errors(monkeypatch):
         async def complete_text(self, messages, **_kwargs):
             assert "401 Unauthorized" in messages[1]["content"]
             assert "execution failure" in messages[0]["content"]
-            return "Issue: The target rejected the request. Evidence: The stored run contains HTTP 401. Recommendation: refresh the target credentials."
+            return (
+                "Issue: The target rejected the request. "
+                "Evidence: The stored run contains HTTP 401. "
+                "Recommendation: refresh the target credentials."
+            )
 
         async def aclose(self):
             return None

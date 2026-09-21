@@ -28,8 +28,8 @@ try:
         UniqueConstraint,
         and_,
         create_engine,
-        desc,
         delete,
+        desc,
         func,
         insert,
         inspect,
@@ -537,9 +537,14 @@ class RunStore:
                 )
             } if run_ids else {}
             for item in items:
-                item_states = [states.get(run_id, "unknown") for run_id in (item.get("run_ids") or [])]
+                item_run_ids = item.get("run_ids") or []
+                item_states = [states.get(run_id, "unknown") for run_id in item_run_ids]
                 active_id = next(
-                    (run_id for run_id in (item.get("run_ids") or []) if states.get(run_id) in {"queued", "running", "cancelling"}),
+                    (
+                        run_id
+                        for run_id in item_run_ids
+                        if states.get(run_id) in {"queued", "running", "cancelling"}
+                    ),
                     None,
                 )
                 if active_id:
@@ -668,7 +673,9 @@ class RunStore:
         """Delete a full attack and all of its child runs."""
         with self.engine.begin() as connection:
             row = _row(
-                connection.execute(select(checks).where(checks.c.id == check_id).with_for_update()).first()
+                connection.execute(
+                    select(checks).where(checks.c.id == check_id).with_for_update()
+                ).first()
             )
             if row is None:
                 return False
@@ -694,7 +701,9 @@ class RunStore:
                     .limit(1)
                 ).scalar_one_or_none()
                 if active is not None:
-                    raise ValueError("cannot delete a full attack with active runs; cancel it first")
+                    raise ValueError(
+                        "cannot delete a full attack with active runs; cancel it first"
+                    )
                 for child_id in all_run_ids:
                     self._delete_run_records(connection, child_id)
             result = connection.execute(delete(checks).where(checks.c.id == check_id))

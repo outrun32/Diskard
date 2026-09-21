@@ -16,12 +16,12 @@ from diskard.console.bridge import (
     ExecutionBridge,
     auto_bootstrap_enabled,
 )
-from diskard.console.probe_bridge import DispatchingExecutionBridge
 from diskard.console.contracts import (
     EventRecord,
     RunSpec,
     TargetProfile,
 )
+from diskard.console.probe_bridge import DispatchingExecutionBridge
 from diskard.console.redaction import redact
 from diskard.console.repository import (
     RunStore,

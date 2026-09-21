@@ -1363,7 +1363,9 @@ app.mount(
     "/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets"), check_dir=False), name="assets"
 )
 app.mount(
-    "/concepts", StaticFiles(directory=str(FRONTEND_DIST / "concepts"), check_dir=False), name="concepts"
+    "/concepts",
+    StaticFiles(directory=str(FRONTEND_DIST / "concepts"), check_dir=False),
+    name="concepts",
 )
 
 
