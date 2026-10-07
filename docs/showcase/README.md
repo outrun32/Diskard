@@ -1,15 +1,8 @@
 # Diskard — витрина
 
-Хакатон Альфа-Банка «Agentic Red Teaming», 07.09.2026. Живая консоль, реальные прогоны, реальные находки — ничего на этой странице не сфабриковано.
+Хакатон Альфа-Банка «Agentic Red Teaming», 07.09.2026. Реальные прогоны, реальные находки — ничего на этой странице не сфабриковано. Стенд демо поднимался на время защиты и больше не разворачивается — ниже скринкасты и трассы реальных ранов.
 
-## Живой стенд
-
-| | |
-|---|---|
-| **Консоль (рабочая)** | [console-preview.51-250-80-101.sslip.io](https://console-preview.51-250-80-101.sslip.io) |
-| **Plain console (нестабильно)** | [ee6bfc73.51-250-80-101.sslip.io/live](https://ee6bfc73.51-250-80-101.sslip.io/live) — auto-attacker там иногда падает |
-
-<img src="qr-console.png" width="160" alt="QR на консоль"> <img src="qr-plain-console.png" width="160" alt="QR на plain console"> <img src="qr-repo.png" width="160" alt="QR на репозиторий">
+<img src="qr-repo.png" width="160" alt="QR на репозиторий">
 
 ## Схема атаки
 
